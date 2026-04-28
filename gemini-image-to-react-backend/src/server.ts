@@ -15,7 +15,9 @@ const corsOrigins = (
   .map((s) => s.trim().replace(/\/$/, ""))
   .filter(Boolean);
 const GEMINI_MODEL =
-  process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+  process.env.GEMINI_MODEL?.trim() ||
+  process.env.GEMINI_MODEL_NAME?.trim() ||
+  "gemini-1.5-flash";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
 const isGeminiConfigured = Boolean(GEMINI_API_KEY);
 
