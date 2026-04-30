@@ -120,6 +120,7 @@ export function StreamingLivePreview({
     () => analyzePreviewCodeIssues(normalizedRawCode),
     [normalizedRawCode],
   );
+  const showShimmer = Boolean(rawCode.trim()) && isPlaceholderOrWaitingLiveCode(providerCode);
 
   if (serverBusy) {
     return (
@@ -169,6 +170,13 @@ export function StreamingLivePreview({
             Unsupported imports for live preview: {diagnostics.unsupportedImports.join(", ")}
           </div>
         ) : null}
+        {showShimmer ? (
+          <div className="mb-3 space-y-3 rounded-2xl border border-white/10 bg-white/70 p-4 dark:bg-white/[0.04]">
+            <div className="h-5 w-40 rounded bg-zinc-200/70 dark:bg-zinc-700/40" />
+            <div className="h-24 rounded-xl shimmer-block" />
+            <div className="h-16 rounded-xl shimmer-block" />
+          </div>
+        ) : null}
         <LiveProvider
           code={providerCode}
           noInline
@@ -177,7 +185,7 @@ export function StreamingLivePreview({
         >
           <PreviewErrorBoundary code={providerCode} onRecover={handleRecover}>
             <div className="max-h-[26rem] min-h-[20rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-white p-4 text-black [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible">
-              <TryLivePreview />
+              {!showShimmer ? <TryLivePreview /> : null}
             </div>
           </PreviewErrorBoundary>
           <LiveError className="mt-3 max-h-40 overflow-auto rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-300/40 dark:bg-rose-950/10 dark:text-rose-300" />
