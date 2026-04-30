@@ -32,6 +32,125 @@ function removeStreamCodeFences(stream: string): string {
     .trim();
 }
 
+/** Remove stray markdown/punctuation prefix (e.g. leading ` or . from stream). */
+function stripLeadingStreamNoiseChars(source: string): string {
+  return source.replace(/^\s*[`.]+(?=\s*(?:<|import|export|function|const|let|var))/i, "");
+}
+
+/**
+ * Strip any non-alphanumeric prefix from the first meaningful line before code begins.
+ * Useful when stream starts with stray punctuation like `.`, `` ` ``, or `-`.
+ */
+function stripFirstLineNonAlphaPrefix(source: string): string {
+  const lines = source.split("\n");
+  const startRegex = /^\s*(?:import|export|function|const|let|var|class|type|interface|<)/;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (!line.trim()) {
+      continue;
+    }
+    const cleaned = line.replace(/^\s*[^A-Za-z0-9<]+/, "");
+    lines[i] = cleaned;
+    if (startRegex.test(cleaned)) {
+      break;
+    }
+  }
+  return lines.join("\n");
+}
+
+function findMatchingBraceIndex(source: string, startBraceIdx: number): number {
+  let depth = 0;
+  for (let i = startBraceIdx; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === "{") depth += 1;
+    if (ch === "}") depth -= 1;
+    if (depth === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Strict mode: trim any explanation/noise that appears after main component close.
+ */
+function trimAfterMainComponentBlock(source: string): string {
+  const exportFnMatch = source.match(/export\s+default\s+function\s+\w+[^{]*\{/);
+  if (exportFnMatch?.index !== undefined) {
+    const openBraceIdx = exportFnMatch.index + exportFnMatch[0].lastIndexOf("{");
+    const closeBraceIdx = findMatchingBraceIndex(source, openBraceIdx);
+    if (closeBraceIdx >= 0) {
+      return source.slice(0, closeBraceIdx + 1).trim();
+    }
+  }
+
+  const fnDeclMatch = source.match(/\bfunction\s+([A-Za-z_$][\w$]*)\s*[^(]*\([^)]*\)\s*\{/);
+  if (fnDeclMatch?.index !== undefined) {
+    const openBraceIdx = fnDeclMatch.index + fnDeclMatch[0].lastIndexOf("{");
+    const closeBraceIdx = findMatchingBraceIndex(source, openBraceIdx);
+    if (closeBraceIdx >= 0) {
+      let end = closeBraceIdx + 1;
+      const exportDefaultMatch = source.slice(end).match(/^\s*export\s+default\s+[A-Za-z_$][\w$]*\s*;?/);
+      if (exportDefaultMatch?.index === 0) {
+        end += exportDefaultMatch[0].length;
+      }
+      return source.slice(0, end).trim();
+    }
+  }
+
+  const exportDefaultLine = source.match(/\n?\s*export\s+default\s+[A-Za-z_$][\w$]*\s*;?/m);
+  if (exportDefaultLine?.index !== undefined) {
+    const end = exportDefaultLine.index + exportDefaultLine[0].length;
+    return source.slice(0, end).trim();
+  }
+
+  return source;
+}
+
+function splitTopLevelJsxNodes(source: string): string[] {
+  const text = source.trim();
+  const nodes: string[] = [];
+  let depth = 0;
+  let inTag = false;
+  let nodeStart = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "<") {
+      if (depth === 0 && nodeStart === -1) {
+        nodeStart = i;
+      }
+      inTag = true;
+      if (!text.startsWith("</", i) && !text.startsWith("<!", i) && !text.startsWith("<?", i)) {
+        depth += 1;
+      } else if (text.startsWith("</", i)) {
+        depth -= 1;
+      }
+    } else if (ch === ">" && inTag) {
+      inTag = false;
+      if (text[i - 1] === "/" && depth > 0) {
+        depth -= 1;
+      }
+      if (depth === 0 && nodeStart >= 0) {
+        nodes.push(text.slice(nodeStart, i + 1).trim());
+        nodeStart = -1;
+      }
+    }
+  }
+  return nodes.filter(Boolean);
+}
+
+function wrapMultipleTopLevelJsx(source: string): string {
+  const trimmed = source.trim();
+  if (!trimmed.startsWith("<")) {
+    return source;
+  }
+  const nodes = splitTopLevelJsxNodes(trimmed);
+  if (nodes.length <= 1) {
+    return source;
+  }
+  return `<>${nodes.join("\n")}</>`;
+}
+
 /**
  * Strip leading prose / markdown that is not TS/JS/JSX (explanations before the code).
  */
@@ -163,11 +282,14 @@ export default StreamPreview;
 export function sanitizeCode(streamChunk: string): string {
   if (!streamChunk) return streamChunk;
   let out = removeStreamCodeFences(streamChunk);
+  out = stripLeadingStreamNoiseChars(out);
+  out = stripFirstLineNonAlphaPrefix(out);
   out = stripRscDirectives(out);
   out = stripLeadingNonCodeLines(out);
   out = stripNonCodeNoiseWithRegex(out);
   out = stripImportLines(out);
   out = stripViewportHeightCaps(out);
+  out = trimAfterMainComponentBlock(out);
   out = out.replace(/\n{3,}/g, "\n\n").trim();
 
   if (!out) return out;
@@ -180,7 +302,7 @@ export function sanitizeCode(streamChunk: string): string {
       /\bfunction\s+[A-Za-z_$][\w$]*\s*[<(]/.test(out) ||
       /\bconst\s+[A-Za-z_$][\w$]*\s*=\s*(?:\([^)]*\)\s*=>|\([^)]*\)\s*:\s*)/.test(out);
     if (couldBeJsxOnly && !hasDeclaredComponent) {
-      out = wrapAsDefaultFunctionalComponent(out);
+      out = wrapAsDefaultFunctionalComponent(wrapMultipleTopLevelJsx(out));
     }
   }
   return out;
@@ -396,7 +518,34 @@ function closeUnbalancedPairs(source: string): string {
   let paren = 0;
   let brace = 0;
   let bracket = 0;
+  let doubleQuoteOpen = false;
+  let singleQuoteOpen = false;
+  let templateQuoteOpen = false;
+  let escaped = false;
   for (const ch of source) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"' && !singleQuoteOpen && !templateQuoteOpen) {
+      doubleQuoteOpen = !doubleQuoteOpen;
+      continue;
+    }
+    if (ch === "'" && !doubleQuoteOpen && !templateQuoteOpen) {
+      singleQuoteOpen = !singleQuoteOpen;
+      continue;
+    }
+    if (ch === "`" && !doubleQuoteOpen && !singleQuoteOpen) {
+      templateQuoteOpen = !templateQuoteOpen;
+      continue;
+    }
+    if (doubleQuoteOpen || singleQuoteOpen || templateQuoteOpen) {
+      continue;
+    }
     if (ch === "(") paren += 1;
     if (ch === ")") paren -= 1;
     if (ch === "{") brace += 1;
@@ -404,7 +553,8 @@ function closeUnbalancedPairs(source: string): string {
     if (ch === "[") bracket += 1;
     if (ch === "]") bracket -= 1;
   }
-  return `${source}${")".repeat(Math.max(paren, 0))}${"]".repeat(Math.max(bracket, 0))}${"}".repeat(Math.max(brace, 0))}`;
+  const quoteFix = `${doubleQuoteOpen ? '"' : ""}${singleQuoteOpen ? "'" : ""}${templateQuoteOpen ? "`" : ""}`;
+  return `${source}${quoteFix}${")".repeat(Math.max(paren, 0))}${"]".repeat(Math.max(bracket, 0))}${"}".repeat(Math.max(brace, 0))}`;
 }
 
 /**
