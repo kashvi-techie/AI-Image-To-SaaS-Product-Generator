@@ -3,8 +3,10 @@
 import * as React from "react";
 import { LiveError, LivePreview, LiveProvider } from "react-live";
 import {
+  LIVE_PREVIEW_WAITING_CODE,
   appendMissingDefaultExport,
   analyzePreviewCodeIssues,
+  isPlaceholderOrWaitingLiveCode,
   prepareStreamedCodeForLive,
 } from "@/lib/live-preview";
 import { livePreviewScope } from "@/lib/live-preview-scope";
@@ -12,6 +14,7 @@ import { livePreviewScope } from "@/lib/live-preview-scope";
 type PreviewErrorBoundaryProps = {
   code: string;
   children: React.ReactNode;
+  onRecover?: () => void;
 };
 
 type PreviewErrorBoundaryState = { hasError: boolean };
@@ -34,6 +37,7 @@ class PreviewErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error) {
     console.warn("[StreamingLivePreview] runtime error (often incomplete stream):", error.message);
+    this.props.onRecover?.();
   }
 
   render() {
@@ -42,12 +46,21 @@ class PreviewErrorBoundary extends React.Component<
         <div className="flex min-h-[12rem] flex-col items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-sm text-amber-950 dark:border-amber-300/25 dark:bg-amber-500/5 dark:text-amber-100/90">
           <p>Preview paused — the streamed component is not runnable yet.</p>
           <p className="text-xs text-amber-800/90 dark:text-amber-200/70">
-            This is normal while JSX is incomplete. The preview retries automatically as more code arrives.
+            Showing the last stable preview until the next valid update arrives.
           </p>
         </div>
       );
     }
     return this.props.children;
+  }
+}
+
+function TryLivePreview(): React.ReactElement | null {
+  try {
+    return <LivePreview />;
+  } catch (err) {
+    console.warn("[TryLivePreview] render guard:", err);
+    return null;
   }
 }
 
@@ -65,10 +78,44 @@ export function StreamingLivePreview({
   forceRender = false,
 }: StreamingLivePreviewProps) {
   const normalizedRawCode = React.useMemo(() => appendMissingDefaultExport(rawCode), [rawCode]);
-  const liveCode = React.useMemo(
+  const candidateLiveCode = React.useMemo(
     () => prepareStreamedCodeForLive(normalizedRawCode, { forceRender }),
     [normalizedRawCode, forceRender],
   );
+
+  const lastStableLiveRef = React.useRef<string | null>(null);
+  const [providerCode, setProviderCode] = React.useState(LIVE_PREVIEW_WAITING_CODE);
+
+  React.useEffect(() => {
+    if (!rawCode.trim()) {
+      lastStableLiveRef.current = null;
+      setProviderCode(LIVE_PREVIEW_WAITING_CODE);
+      return;
+    }
+
+    const next = candidateLiveCode;
+    if (isPlaceholderOrWaitingLiveCode(next)) {
+      if (
+        lastStableLiveRef.current &&
+        !isPlaceholderOrWaitingLiveCode(lastStableLiveRef.current)
+      ) {
+        setProviderCode(lastStableLiveRef.current);
+        return;
+      }
+    }
+
+    setProviderCode(next);
+    if (!isPlaceholderOrWaitingLiveCode(next)) {
+      lastStableLiveRef.current = next;
+    }
+  }, [candidateLiveCode, rawCode]);
+
+  const handleRecover = React.useCallback(() => {
+    if (lastStableLiveRef.current) {
+      setProviderCode(lastStableLiveRef.current);
+    }
+  }, []);
+
   const diagnostics = React.useMemo(
     () => analyzePreviewCodeIssues(normalizedRawCode),
     [normalizedRawCode],
@@ -123,14 +170,14 @@ export function StreamingLivePreview({
           </div>
         ) : null}
         <LiveProvider
-          code={liveCode}
+          code={providerCode}
           noInline
           scope={livePreviewScope}
           enableTypeScript
         >
-          <PreviewErrorBoundary code={`${normalizedRawCode}:${forceRender ? "1" : "0"}`}>
+          <PreviewErrorBoundary code={providerCode} onRecover={handleRecover}>
             <div className="max-h-[26rem] min-h-[20rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-white p-4 text-black [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible">
-              <LivePreview />
+              <TryLivePreview />
             </div>
           </PreviewErrorBoundary>
           <LiveError className="mt-3 max-h-40 overflow-auto rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-300/40 dark:bg-rose-950/10 dark:text-rose-300" />

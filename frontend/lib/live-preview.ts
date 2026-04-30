@@ -1,6 +1,6 @@
 /** react-live bundle: strip imports, drop default export keyword, append render(). */
 
-const WAITING_LIVE_CODE = `const Waiting = () => (
+export const LIVE_PREVIEW_WAITING_CODE = `const Waiting = () => (
   <div className="flex min-h-[12rem] items-center justify-center text-sm text-zinc-500">
     Waiting for streamed code…
   </div>
@@ -16,9 +16,59 @@ const SERVER_BUSY_LIVE_CODE = `const ServerBusy = () => (
 );
 render(<ServerBusy />);`;
 
+const STREAMING_COMPOSING_MARKER = "Streaming in progress";
+
 function extractStreamError(source: string): string | null {
   const match = source.match(/\/\*\s*Error:\s*([\s\S]*?)\s*\*\//);
   return match?.[1]?.trim() || null;
+}
+
+/** Remove markdown code fences as soon as they appear (incremental stream safe). */
+function removeStreamCodeFences(stream: string): string {
+  return stream
+    .replace(/```(?:jsx|tsx|javascript|typescript|js|ts)?\s*\n?/gi, "")
+    .replace(/```/g, "")
+    .replace(/^[`]{1,2}(?:jsx|tsx|js|ts|javascript|typescript)?\s*$/gim, "")
+    .trim();
+}
+
+/**
+ * Strip leading prose / markdown that is not TS/JS/JSX (explanations before the code).
+ */
+function stripLeadingNonCodeLines(text: string): string {
+  const lines = text.split("\n");
+  const looksLikeCode = (line: string): boolean => {
+    const t = line.trim();
+    if (!t) return false;
+    return (
+      /^\s*(?:import\s|export\s|function\s|const\s|let\s|var\s|type\s|interface\s|return\s|\/\/|\/\*)/.test(line) ||
+      /[<>()[\]{};=]/.test(line) ||
+      /^[@$A-Za-z_][\w$]*\s*[:=]/.test(line)
+    );
+  };
+  let start = 0;
+  while (start < lines.length) {
+    const line = lines[start] ?? "";
+    if (line.trim() === "") {
+      start += 1;
+      continue;
+    }
+    if (looksLikeCode(line)) break;
+    if (/^\s*(?:#{1,6}\s|>\s|[-*+]\s|\d+\.\s)/.test(line)) {
+      start += 1;
+      continue;
+    }
+    break;
+  }
+  return lines.slice(start).join("\n");
+}
+
+/** Regex pass: drop obvious non-code tokens (lone bullets, markdown headers mid-stream). */
+function stripNonCodeNoiseWithRegex(text: string): string {
+  return text
+    .replace(/^\s*#{1,6}\s[^\n]*\n/gm, "")
+    .replace(/^\s*>\s[^\n]*\n/gm, "")
+    .replace(/\n{4,}/g, "\n\n");
 }
 
 /** Brace depth within a line (for multiline import blocks). */
@@ -77,12 +127,7 @@ function stripViewportHeightCaps(source: string): string {
 }
 
 function stripMarkdownFences(source: string): string {
-  const stripped = source
-    .replace(/```[a-zA-Z0-9_-]*\s*/g, "")
-    .replace(/```/g, "")
-    .trim();
-  // Some streamed outputs leave a dangling language token on first line.
-  return stripped.replace(/^(tsx|jsx|typescript|javascript)\s*\n/i, "");
+  return removeStreamCodeFences(source).replace(/^(tsx|jsx|typescript|javascript)\s*\n/i, "");
 }
 
 /** RSC directives break react-live's eval; streamed Next code often includes them. */
@@ -90,6 +135,55 @@ function stripRscDirectives(source: string): string {
   return source
     .replace(/^\s*["']use client["']\s*;?\s*/gim, "")
     .replace(/^\s*["']use server["']\s*;?\s*/gim, "");
+}
+
+function wrapAsDefaultFunctionalComponent(body: string): string {
+  const b = body.trim();
+  if (!b) return body;
+  const indented = b
+    .split("\n")
+    .map((line) => `      ${line}`)
+    .join("\n");
+  return `function StreamPreview() {
+  return (
+    <>
+${indented}
+    </>
+  );
+}
+
+export default StreamPreview;
+`;
+}
+
+/**
+ * Sanitize streamed text: strip fences immediately, drop prose/noise, strip RSC/imports where needed,
+ * optionally wrap as a default-export component when there is JSX-like content but no export default.
+ */
+export function sanitizeCode(streamChunk: string): string {
+  if (!streamChunk) return streamChunk;
+  let out = removeStreamCodeFences(streamChunk);
+  out = stripRscDirectives(out);
+  out = stripLeadingNonCodeLines(out);
+  out = stripNonCodeNoiseWithRegex(out);
+  out = stripImportLines(out);
+  out = stripViewportHeightCaps(out);
+  out = out.replace(/\n{3,}/g, "\n\n").trim();
+
+  if (!out) return out;
+  if (!/export\s+default\s+/m.test(out)) {
+    const couldBeJsxOnly =
+      /^\s*</.test(out) ||
+      /\n\s*</.test(out) ||
+      (/<[A-Za-z][\w-]*/.test(out) && !/^\s*(?:function|const|let|var|class)\s+/m.test(out));
+    const hasDeclaredComponent =
+      /\bfunction\s+[A-Za-z_$][\w$]*\s*[<(]/.test(out) ||
+      /\bconst\s+[A-Za-z_$][\w$]*\s*=\s*(?:\([^)]*\)\s*=>|\([^)]*\)\s*:\s*)/.test(out);
+    if (couldBeJsxOnly && !hasDeclaredComponent) {
+      out = wrapAsDefaultFunctionalComponent(out);
+    }
+  }
+  return out;
 }
 
 function detectLastComponentSymbol(source: string): string | null {
@@ -125,7 +219,7 @@ function extractDefaultExportName(source: string): string | null {
  * during partial generations instead of blanking.
  */
 export function appendMissingDefaultExport(raw: string): string {
-  const cleaned = stripRscDirectives(stripMarkdownFences(raw));
+  const cleaned = sanitizeCode(raw);
   if (!cleaned.trim()) {
     return cleaned;
   }
@@ -199,12 +293,13 @@ export function analyzePreviewCodeIssues(raw: string): {
   unsupportedImports: string[];
   streamError: string | null;
 } {
-  const sanitized = stripRscDirectives(stripMarkdownFences(raw));
+  const sanitized = sanitizeCode(raw);
   const streamError = extractStreamError(sanitized);
   const hasDefaultExport =
     /export\s+default\s+function\s+\w+\s*[<(]/.test(sanitized) ||
     /export\s+default\s+\w+\s*;?/.test(sanitized);
-  const importedModules = extractImportedModules(sanitized);
+  const forImportScan = removeStreamCodeFences(stripRscDirectives(raw));
+  const importedModules = extractImportedModules(forImportScan);
   const unsupportedImports = importedModules.filter(
     (name) => !PREVIEW_ALLOWED_IMPORTS.has(name),
   );
@@ -235,7 +330,7 @@ function isUnavailableServiceError(text: string): boolean {
 
 /** Detect Gemini/stream errors embedded in streamed text (e.g. after non-JSON error path). */
 export function detectStreamUnavailableInText(raw: string): boolean {
-  const cleaned = stripRscDirectives(stripMarkdownFences(raw));
+  const cleaned = sanitizeCode(raw);
   if (extractStreamError(cleaned) && isUnavailableServiceError(cleaned)) {
     return true;
   }
@@ -297,17 +392,105 @@ function hasLikelyIncompleteSyntax(source: string): boolean {
   return /(?:\b(?:function|const|let|var|return|export)\s*)$/.test(source.trimEnd());
 }
 
+function closeUnbalancedPairs(source: string): string {
+  let paren = 0;
+  let brace = 0;
+  let bracket = 0;
+  for (const ch of source) {
+    if (ch === "(") paren += 1;
+    if (ch === ")") paren -= 1;
+    if (ch === "{") brace += 1;
+    if (ch === "}") brace -= 1;
+    if (ch === "[") bracket += 1;
+    if (ch === "]") bracket -= 1;
+  }
+  return `${source}${")".repeat(Math.max(paren, 0))}${"]".repeat(Math.max(bracket, 0))}${"}".repeat(Math.max(brace, 0))}`;
+}
+
+/**
+ * Count open vs closed HTML-like tags and append temporary closing tags so partial JSX is balanced.
+ * (Focused on streaming where `</div>` arrives late.)
+ */
+export function appendTemporaryClosingTagsForOpenElements(source: string): string {
+  const tagRegex = /<\/?([A-Za-z][\w:-]*)(?:\s[^<>]*?)?>/g;
+  const voidTags = new Set([
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+  ]);
+  const stack: string[] = [];
+  for (const match of source.matchAll(tagRegex)) {
+    const full = match[0] ?? "";
+    const tag = match[1]?.toLowerCase();
+    if (!tag) continue;
+    if (full.startsWith("</")) {
+      const idx = stack.lastIndexOf(tag);
+      if (idx >= 0) stack.splice(idx, 1);
+      continue;
+    }
+    if (full.endsWith("/>") || voidTags.has(tag)) {
+      continue;
+    }
+    stack.push(tag);
+  }
+  let fixed = source;
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    fixed += `</${stack[i]}>`;
+  }
+  return fixed;
+}
+
+function applyPermissiveStreamFixes(preSanitized: string): string {
+  let fixed = preSanitized.trim();
+  fixed = fixed.replace(/export\s+default\s*$/m, "").replace(/export\s*$/m, "");
+  fixed = appendTemporaryClosingTagsForOpenElements(fixed);
+  fixed = closeUnbalancedPairs(fixed);
+  return fixed;
+}
+
+function buildSafeRenderBlock(componentName: string): string {
+  return `try {
+  render(<${componentName} />);
+} catch (_previewErr) {
+  const __Fallback = () => (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      Rendering partial preview while stream completes.
+    </div>
+  );
+  render(<__Fallback />);
+}`;
+}
+
 function composingLiveCode(message?: string): string {
   const subtitle =
     message || "Preview will render automatically when JSX becomes complete.";
   const safeSubtitle = JSON.stringify(subtitle);
   return `const Composing = () => (
   <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-    <p className="font-semibold">Streaming in progress</p>
+    <p className="font-semibold">${STREAMING_COMPOSING_MARKER}</p>
     <p className="mt-1">{${safeSubtitle}}</p>
   </div>
 );
 render(<Composing />);`;
+}
+
+export function isPlaceholderOrWaitingLiveCode(code: string): boolean {
+  return (
+    code.includes(STREAMING_COMPOSING_MARKER) ||
+    code.includes("Waiting for streamed code") ||
+    code.includes("Waiting for streamed code…")
+  );
 }
 
 /**
@@ -327,14 +510,14 @@ export default __StreamPartialPreview;`;
 }
 
 /**
- * Turn raw streamed TSX into react-live code. Uses safe placeholders until
- * a default-export function is present so the preview never receives totally empty code.
+ * Input should already be sanitized + default export completed (e.g. appendMissingDefaultExport).
+ * Turn TSX into react-live code with safe placeholders until runnable.
  */
 export function prepareStreamedCodeForLive(
-  raw: string,
+  normalizedRaw: string,
   options?: PrepareStreamedLiveOptions,
 ): string {
-  const cleaned = stripRscDirectives(stripMarkdownFences(raw));
+  const cleaned = normalizedRaw.trim();
   const streamError = extractStreamError(cleaned);
   if (streamError) {
     if (isUnavailableServiceError(streamError)) {
@@ -352,17 +535,19 @@ render(<StreamError />);`;
   if (isUnavailableServiceError(cleaned)) {
     return SERVER_BUSY_LIVE_CODE;
   }
-  let withoutImports = stripViewportHeightCaps(stripImportLines(cleaned)).trim();
+  let withoutImports = applyPermissiveStreamFixes(cleaned);
   if (!withoutImports) {
-    return WAITING_LIVE_CODE;
+    return LIVE_PREVIEW_WAITING_CODE;
   }
-  if (hasLikelyIncompleteSyntax(withoutImports)) {
+  const forceRender = Boolean(options?.forceRender);
+  if (hasLikelyIncompleteSyntax(withoutImports) && !forceRender) {
     return composingLiveCode(
       "Generated code is still incomplete. Waiting for valid syntax before rendering.",
     );
   }
-
-  const forceRender = Boolean(options?.forceRender);
+  if (hasLikelyIncompleteSyntax(withoutImports) && forceRender) {
+    withoutImports = closeUnbalancedPairs(appendTemporaryClosingTagsForOpenElements(withoutImports));
+  }
   const hasExport =
     /export\s+default\s+function\s+\w+\s*[<(]/.test(withoutImports) ||
     /export\s+default\s+\w+\s*;?/.test(withoutImports);
@@ -377,23 +562,31 @@ render(<StreamError />);`;
     const body = withExport
       .replace(/export\s+default\s+function\s+/g, "function ")
       .replace(/export\s+default\s+/g, "");
-    return `${body}\n\nrender(<${componentName} />);`;
+    return `${body}\n\n${buildSafeRenderBlock(componentName)}`;
   }
 
   const jsxStart = withoutImports.indexOf("<");
   const jsxEnd = withoutImports.lastIndexOf(">");
   const hasLikelyJsxFragment = jsxStart >= 0 && jsxEnd > jsxStart;
   if (hasLikelyJsxFragment) {
-    const jsxFragment = withoutImports.slice(jsxStart, jsxEnd + 1).trim();
-    return `render(
+    const jsxFragment = appendTemporaryClosingTagsForOpenElements(
+      withoutImports.slice(jsxStart, jsxEnd + 1).trim(),
+    );
+    return `try {
+  render(
   <div className="min-h-[12rem]">
     ${jsxFragment}
   </div>
-);`;
+  );
+} catch (_e) {
+  render(<div className="min-h-[12rem] text-sm text-zinc-500">Preview updating…</div>);
+}`;
   }
 
   if (forceRender) {
-    const wrapped = wrapInTemporaryDefaultExport(stripViewportHeightCaps(stripImportLines(cleaned)).trim());
+    const wrapped = wrapInTemporaryDefaultExport(
+      stripViewportHeightCaps(stripImportLines(cleaned)).trim(),
+    );
     const wStripped = stripImportLines(wrapped).trim();
     const forcedName =
       wStripped.match(/export\s+default\s+function\s+(\w+)\s*[<(]/)?.[1] || "__StreamPartialPreview";
