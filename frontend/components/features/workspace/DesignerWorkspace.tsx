@@ -240,9 +240,54 @@ export function DesignerWorkspace({
   /** Shown after a successful stream completes (luxe workspace); auto-dismisses. */
   const [showGenerationCompleteBadge, setShowGenerationCompleteBadge] =
     useState(false);
+  /** Compact offline UX below sm: dismissible strip + red-dot recall. */
+  const [mobileBackendOfflineDismissed, setMobileBackendOfflineDismissed] =
+    useState(false);
+  /** Below sm: show canvas or streamed code to reduce vertical clutter. */
+  const [luxeMobileWorkspaceTab, setLuxeMobileWorkspaceTab] = useState<
+    "canvas" | "code"
+  >("canvas");
+  /** Lift fixed prompt bar when mobile browser chrome / keyboard shrinks visual viewport. */
+  const [floatingBarViewportInset, setFloatingBarViewportInset] = useState(0);
   const barPulseControls = useAnimationControls();
+  /** Health can lag behind a successful stream; hide offline UX while the proxy clearly worked. */
+  const hasStreamedBody = Boolean(streamedPromptCode.trim());
+  const backendConnectionProven =
+    hasStreamedBody || generateLoading || isLoading;
   const generateBlockedByBackend =
-    isLuxeWorkingPage && backendHealth === "offline";
+    isLuxeWorkingPage &&
+    backendHealth === "offline" &&
+    !backendConnectionProven;
+  const showBackendOfflineBanner =
+    backendHealth === "offline" && !backendConnectionProven;
+
+  useEffect(() => {
+    if (!showBackendOfflineBanner) {
+      setMobileBackendOfflineDismissed(false);
+    }
+  }, [showBackendOfflineBanner]);
+
+  useEffect(() => {
+    if (!useFloatingPromptBar || typeof window === "undefined") {
+      return;
+    }
+    const vv = window.visualViewport;
+    if (!vv) {
+      return;
+    }
+    function syncBarInset(): void {
+      const obscured = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setFloatingBarViewportInset(obscured > 48 ? obscured : 0);
+    }
+    syncBarInset();
+    vv.addEventListener("resize", syncBarInset);
+    vv.addEventListener("scroll", syncBarInset);
+    return () => {
+      vv.removeEventListener("resize", syncBarInset);
+      vv.removeEventListener("scroll", syncBarInset);
+    };
+  }, [useFloatingPromptBar]);
+
   const lastGenerateArgsRef = useRef<{
     prompt: string;
     previousCode?: string;
@@ -759,7 +804,12 @@ export function DesignerWorkspace({
     localStorage.removeItem(PROMPT_HISTORY_STORAGE_KEY);
   }
 
-  const shellPb = useFloatingPromptBar ? "pb-40" : "pb-44";
+  const shellPb =
+    useFloatingPromptBar && isLuxeWorkingPage
+      ? "pb-40 max-sm:pb-[min(14rem,calc(env(safe-area-inset-bottom)+11.5rem))]"
+      : useFloatingPromptBar
+        ? "pb-40 max-sm:pb-[min(13rem,calc(env(safe-area-inset-bottom)+10.5rem))]"
+        : "pb-44";
 
   function buildDockedControlAside() {
     return (
@@ -1170,7 +1220,7 @@ export function DesignerWorkspace({
         </aside>
       ) : null}
 
-      <div className="mx-auto max-w-[1500px] px-4 py-8 md:px-8">
+      <div className="mx-auto max-w-[1500px] px-3 py-6 sm:px-4 sm:py-8 md:px-8">
         {!useFloatingPromptBar ? (
           <section className="mb-6 text-center">
             <h1 className="mx-auto max-w-4xl text-3xl font-semibold tracking-tight text-zinc-900 md:text-5xl dark:text-zinc-100">
@@ -1205,51 +1255,101 @@ export function DesignerWorkspace({
 
           {isLuxeWorkingPage ? (
             <div className="luxe-thinkhall-surface rounded-[2rem] border border-[#d4af37]/28 bg-white/55 p-4 ring-1 ring-[#d4af37]/18 backdrop-blur-2xl dark:bg-[#1b1610]/55 dark:ring-[#fccf45]/15 md:p-6">
-              {backendHealth === "offline" ? (
-                <div
-                  role="alert"
-                  className="mb-5 flex flex-col gap-3 rounded-2xl border border-rose-300/50 bg-rose-50/95 px-4 py-4 text-rose-950 shadow-sm dark:border-rose-500/35 dark:bg-rose-950/40 dark:text-rose-50 md:flex-row md:items-center md:justify-between"
-                >
-                  <div className="min-w-0">
-                    <p className={`${luxeSerif.className} text-base font-semibold tracking-tight`}>
-                      Backend offline
-                    </p>
-                    <p className="mt-1 text-sm text-rose-900/90 dark:text-rose-100/85">
-                      Next.js cannot reach your Express API. Start{" "}
-                      <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
-                        gemini-image-to-react-backend
-                      </code>{" "}
-                      (<kbd className="font-sans text-xs">npm run dev</kbd>) and ensure{" "}
-                      <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
-                        BACKEND_URL
-                      </code>{" "}
-                      in <code className="font-mono text-xs">frontend/.env.local</code> matches the
-                      server port (e.g.{" "}
-                      <span className="whitespace-nowrap">http://127.0.0.1:8080</span>). Use{" "}
-                      <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
-                        /api/test-direct
-                      </code>{" "}
-                      for a raw probe to the backend.
-                    </p>
+              {showBackendOfflineBanner ? (
+                <>
+                  <div
+                    role="alert"
+                    className="mb-5 hidden flex-col gap-3 rounded-2xl border border-rose-300/50 bg-rose-50/95 px-4 py-4 text-rose-950 shadow-sm sm:flex dark:border-rose-500/35 dark:bg-rose-950/40 dark:text-rose-50 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className={`${luxeSerif.className} text-base font-semibold tracking-tight`}>
+                        Backend offline
+                      </p>
+                      <p className="mt-1 text-sm text-rose-900/90 dark:text-rose-100/85">
+                        Next.js cannot reach your Express API. Start{" "}
+                        <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
+                          gemini-image-to-react-backend
+                        </code>{" "}
+                        (<kbd className="font-sans text-xs">npm run dev</kbd>) and ensure{" "}
+                        <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
+                          BACKEND_URL
+                        </code>{" "}
+                        in <code className="font-mono text-xs">frontend/.env.local</code> matches the
+                        server port (e.g.{" "}
+                        <span className="whitespace-nowrap">http://127.0.0.1:8080</span>). Use{" "}
+                        <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
+                          /api/test-direct
+                        </code>{" "}
+                        for a raw probe to the backend.
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2 self-start md:self-center">
+                      <button
+                        type="button"
+                        onClick={() => void checkBackendHealth()}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-400/60 bg-white px-4 py-2.5 text-sm font-medium text-rose-900 transition hover:bg-rose-100/80 dark:border-rose-400/40 dark:bg-rose-900/50 dark:text-rose-50 dark:hover:bg-rose-900/80"
+                      >
+                        <RefreshCw className="h-4 w-4" aria-hidden />
+                        Retry connection
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void testConnectionToApi()}
+                        className="inline-flex items-center justify-center rounded-xl border border-rose-500/40 bg-rose-100/80 px-4 py-2.5 text-sm font-medium text-rose-950 transition hover:bg-rose-200/90 dark:border-rose-400/35 dark:bg-rose-900/60 dark:text-rose-100 dark:hover:bg-rose-800/70"
+                      >
+                        Test connection
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex shrink-0 flex-wrap gap-2 self-start md:self-center">
-                    <button
-                      type="button"
-                      onClick={() => void checkBackendHealth()}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-400/60 bg-white px-4 py-2.5 text-sm font-medium text-rose-900 transition hover:bg-rose-100/80 dark:border-rose-400/40 dark:bg-rose-900/50 dark:text-rose-50 dark:hover:bg-rose-900/80"
+                  {!mobileBackendOfflineDismissed ? (
+                    <div
+                      role="alert"
+                      className="mb-3 flex items-center gap-2 rounded-xl border border-rose-300/60 bg-rose-50/95 px-2.5 py-2 text-rose-950 shadow-sm sm:hidden dark:border-rose-500/40 dark:bg-rose-950/50 dark:text-rose-50"
                     >
-                      <RefreshCw className="h-4 w-4" aria-hidden />
-                      Retry connection
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void testConnectionToApi()}
-                      className="inline-flex items-center justify-center rounded-xl border border-rose-500/40 bg-rose-100/80 px-4 py-2.5 text-sm font-medium text-rose-950 transition hover:bg-rose-200/90 dark:border-rose-400/35 dark:bg-rose-900/60 dark:text-rose-100 dark:hover:bg-rose-800/70"
-                    >
-                      Test connection
-                    </button>
-                  </div>
-                </div>
+                      <span className="relative flex h-2.5 w-2.5 shrink-0">
+                        <span
+                          className="absolute inset-0 animate-ping rounded-full bg-rose-400 opacity-50"
+                          aria-hidden
+                        />
+                        <span className="relative block h-2.5 w-2.5 rounded-full bg-rose-600" />
+                      </span>
+                      <p className="min-w-0 flex-1 text-[11px] leading-snug">
+                        Express unreachable — start backend on{" "}
+                        <span className="whitespace-nowrap">:8080</span>, check{" "}
+                        <code className="rounded bg-black/5 px-0.5 text-[10px] dark:bg-white/10">
+                          BACKEND_URL
+                        </code>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void checkBackendHealth()}
+                        className="shrink-0 rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white dark:bg-rose-500"
+                      >
+                        Retry
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMobileBackendOfflineDismissed(true)}
+                        className="shrink-0 rounded-lg p-1 text-rose-700 hover:bg-rose-100 dark:text-rose-200 dark:hover:bg-rose-900/60"
+                        aria-label="Dismiss offline notice"
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mb-2 flex justify-end sm:hidden">
+                      <button
+                        type="button"
+                        onClick={() => setMobileBackendOfflineDismissed(false)}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-rose-400/45 bg-rose-50/95 px-2.5 py-1 text-[10px] font-medium text-rose-900 shadow-sm dark:border-rose-500/35 dark:bg-rose-950/60 dark:text-rose-100"
+                        title="Backend offline — tap for notice"
+                      >
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-rose-600" aria-hidden />
+                        Offline
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : null}
               {backendHealth === "no_gemini" ? (
                 <div
@@ -1279,13 +1379,45 @@ export function DesignerWorkspace({
                   </div>
                 </div>
               ) : null}
+              <div
+                className="mb-2 flex gap-1 rounded-xl border border-[#d4af37]/28 bg-white/60 p-1 sm:hidden dark:border-[#fccf45]/18 dark:bg-[#1b1610]/55"
+                role="tablist"
+                aria-label="Workspace panels"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={luxeMobileWorkspaceTab === "canvas"}
+                  onClick={() => setLuxeMobileWorkspaceTab("canvas")}
+                  className={`flex-1 rounded-lg py-2 text-center text-[11px] font-semibold tracking-wide transition ${
+                    luxeMobileWorkspaceTab === "canvas"
+                      ? "bg-amber-100 text-amber-950 shadow-sm dark:bg-[#fccf45]/20 dark:text-[#fccf45]"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  Canvas
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={luxeMobileWorkspaceTab === "code"}
+                  onClick={() => setLuxeMobileWorkspaceTab("code")}
+                  className={`flex-1 rounded-lg py-2 text-center text-[11px] font-semibold tracking-wide transition ${
+                    luxeMobileWorkspaceTab === "code"
+                      ? "bg-amber-100 text-amber-950 shadow-sm dark:bg-[#fccf45]/20 dark:text-[#fccf45]"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  Code
+                </button>
+              </div>
               <div className="grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,36%)] xl:gap-6">
                 <motion.div
                   key={`luxe-canvas-${workspaceVisualEpoch}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-                  className="flex min-h-0 flex-col"
+                  className={`flex min-h-0 flex-col ${luxeMobileWorkspaceTab !== "canvas" ? "max-sm:hidden" : ""}`}
                 >
                   <div className="mb-3 flex flex-wrap items-center gap-2 xl:px-0.5">
                     <h3
@@ -1303,9 +1435,9 @@ export function DesignerWorkspace({
                       Force render
                     </label>
                   </div>
-                  <div className="luxe-thinkhall-surface min-h-[min(64vh,34rem)] flex-1 overflow-hidden rounded-2xl border border-[#e8dcc8]/80 bg-white/70 p-2 dark:border-[#fccf45]/12 dark:bg-[#0f0e0c]/75 xl:min-h-[min(70vh,38rem)]">
+                  <div className="luxe-thinkhall-surface min-h-[min(52vh,20rem)] flex-1 overflow-hidden rounded-2xl border border-[#e8dcc8]/80 bg-white/70 p-2 dark:border-[#fccf45]/12 dark:bg-[#0f0e0c]/75 sm:min-h-[min(64vh,34rem)] xl:min-h-[min(70vh,38rem)]">
                     {!generateLoading && !serverBusy && !streamedPromptCode.trim() ? (
-                      <div className="flex min-h-[24rem] flex-col items-center justify-center gap-6 rounded-xl border border-dashed border-[#d4af37]/25 bg-white/50 px-8 py-12 text-center dark:bg-white/[0.04]">
+                      <div className="flex min-h-[18rem] flex-col items-center justify-center gap-6 rounded-xl border border-dashed border-[#d4af37]/25 bg-white/50 px-4 py-10 text-center max-sm:min-h-[14rem] max-sm:pb-8 sm:min-h-[24rem] sm:px-8 sm:py-12 dark:bg-white/[0.04]">
                         <p className="max-w-sm text-base font-medium text-zinc-800 dark:text-[#e8dcc4]">
                           Enter a prompt to begin
                         </p>
@@ -1337,9 +1469,9 @@ export function DesignerWorkspace({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: 0.06 }}
-                  className="flex min-h-0 flex-col"
+                  className={`flex min-h-0 flex-col ${luxeMobileWorkspaceTab !== "code" ? "max-sm:hidden" : ""}`}
                 >
-                  <div className="flex min-h-[min(68vh,36rem)] flex-1 flex-col rounded-2xl border border-[#d4af37]/40 bg-gradient-to-b from-[#5c5346]/98 via-[#423a30]/99 to-[#2a241c] p-3 shadow-[inset_0_1px_0_rgba(212,175,55,0.22),0_18px_48px_rgba(0,0,0,0.28)] xl:min-h-[min(74vh,42rem)]">
+                  <div className="flex min-h-[min(56vh,22rem)] flex-1 flex-col rounded-2xl border border-[#d4af37]/40 bg-gradient-to-b from-[#5c5346]/98 via-[#423a30]/99 to-[#2a241c] p-3 shadow-[inset_0_1px_0_rgba(212,175,55,0.22),0_18px_48px_rgba(0,0,0,0.28)] sm:min-h-[min(68vh,36rem)] xl:min-h-[min(74vh,42rem)]">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <p
                         className={`${luxeSerif.className} text-xs font-semibold tracking-wider text-[#e8dcc4] uppercase`}
@@ -1557,17 +1689,21 @@ export function DesignerWorkspace({
         <motion.div
           layoutId={heroToWorkspaceLayoutId}
           transition={{ type: "spring", stiffness: 380, damping: 38 }}
-          className="fixed right-0 bottom-0 left-0 z-[45] pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]"
+          className="fixed right-0 bottom-0 left-0 z-[45] pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:pt-2 sm:pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))]"
+          style={{
+            bottom:
+              floatingBarViewportInset > 0 ? floatingBarViewportInset : undefined,
+          }}
         >
-          <motion.div animate={barPulseControls} className="relative mx-auto w-full max-w-[min(52rem,min(94vw,calc(100vw-2rem)))]">
+          <motion.div animate={barPulseControls} className="relative mx-auto w-full max-w-[min(52rem,min(94vw,calc(100vw-1rem)))] sm:max-w-[min(52rem,min(94vw,calc(100vw-2rem)))]">
             <div
               className={
                 isLuxeWorkingPage
-                  ? "relative overflow-hidden rounded-[1.85rem] border-2 border-[#d4af37]/45 bg-[#fdfbf4]/96 shadow-2xl shadow-amber-950/15 ring-2 ring-[#d4af37]/25 backdrop-blur-2xl dark:border-[#fccf45]/40 dark:bg-[#fdfbf4]/94 dark:shadow-black/45 dark:ring-[#fccf45]/20"
-                  : "relative overflow-hidden rounded-[1.85rem] border-2 border-[#a07830]/55 bg-[#fdfbf4]/88 shadow-[0_10px_40px_rgba(139,105,20,0.07),inset_0_1px_0_rgba(255,255,255,0.85),inset_0_-10px_28px_rgba(160,120,48,0.06),inset_4px_4px_12px_rgba(255,255,255,0.45)] backdrop-blur-2xl dark:border-2 dark:border-[#d4af37]/30 dark:bg-transparent dark:shadow-[0_0_40px_rgba(0,0,0,0.45)] dark:backdrop-blur-none"
+                  ? "relative overflow-hidden rounded-[1.35rem] border-2 border-[#d4af37]/45 bg-[#fdfbf4]/96 shadow-2xl shadow-amber-950/15 ring-2 ring-[#d4af37]/25 backdrop-blur-2xl sm:rounded-[1.85rem] dark:border-[#fccf45]/40 dark:bg-[#fdfbf4]/94 dark:shadow-black/45 dark:ring-[#fccf45]/20"
+                  : "relative overflow-hidden rounded-[1.35rem] border-2 border-[#a07830]/55 bg-[#fdfbf4]/88 shadow-[0_10px_40px_rgba(139,105,20,0.07),inset_0_1px_0_rgba(255,255,255,0.85),inset_0_-10px_28px_rgba(160,120,48,0.06),inset_4px_4px_12px_rgba(255,255,255,0.45)] backdrop-blur-2xl sm:rounded-[1.85rem] dark:border-2 dark:border-[#d4af37]/30 dark:bg-transparent dark:shadow-[0_0_40px_rgba(0,0,0,0.45)] dark:backdrop-blur-none"
               }
             >
-              <div className="relative rounded-[inherit] dark:rounded-2xl dark:bg-[#fdfbf4]/90 dark:backdrop-blur-md dark:p-2">
+              <div className="relative rounded-[inherit] dark:rounded-xl dark:bg-[#fdfbf4]/90 dark:backdrop-blur-md dark:p-1 sm:dark:rounded-2xl sm:dark:p-2">
               {!streamedPromptCode.trim() ? (
                 <>
                   <label htmlFor="floating-prompt-bar" className="sr-only">
@@ -1595,9 +1731,9 @@ export function DesignerWorkspace({
                     }}
                     rows={2}
                     placeholder="Describe The UI You Want..."
-                    className="min-h-[5.25rem] w-full resize-none bg-transparent px-4 pt-4 pb-2 text-base leading-relaxed text-zinc-900 outline-none placeholder:font-sans placeholder:text-sm placeholder:text-zinc-400 dark:text-slate-900 dark:placeholder:text-slate-500"
+                    className="min-h-[4.25rem] w-full resize-none bg-transparent px-3 pt-2.5 pb-1.5 text-base leading-relaxed text-zinc-900 outline-none placeholder:font-sans placeholder:text-sm placeholder:text-zinc-400 sm:min-h-[5.25rem] sm:px-4 sm:pt-4 sm:pb-2 dark:text-slate-900 dark:placeholder:text-slate-500"
                   />
-                  <div className="flex flex-col gap-2 border-t border-[#d4af37]/25 bg-[#faf8f3]/60 px-3 py-2.5 dark:border-white/12 dark:bg-white/[0.04] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <div className="flex flex-col gap-1.5 border-t border-[#d4af37]/25 bg-[#faf8f3]/60 px-2 py-2 dark:border-white/12 dark:bg-white/[0.04] sm:flex-row sm:gap-2 sm:px-3 sm:py-2.5 md:items-center md:justify-between md:gap-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <motion.button
                         type="button"
@@ -1605,13 +1741,13 @@ export function DesignerWorkspace({
                         disabled={isLoading}
                         title="Upload reference image"
                         aria-label="Upload reference image"
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#c4b8a5]/75 bg-gradient-to-b from-[#f8f4ec] to-[#ebe4d8] text-zinc-800 shadow-sm transition hover:from-[#f2ece2] hover:to-[#e5ddd0] disabled:cursor-not-allowed disabled:opacity-40 dark:border-[#b8ae9c]/60 dark:from-[#e8e4dc] dark:to-[#dcd8d0]"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#c4b8a5]/75 bg-gradient-to-b from-[#f8f4ec] to-[#ebe4d8] text-zinc-800 shadow-sm transition hover:from-[#f2ece2] hover:to-[#e5ddd0] disabled:cursor-not-allowed disabled:opacity-40 sm:h-10 sm:w-10 sm:rounded-xl dark:border-[#b8ae9c]/60 dark:from-[#e8e4dc] dark:to-[#dcd8d0]"
                         whileHover={{ scale: isLoading ? 1 : 1.04 }}
                         whileTap={{ scale: isLoading ? 1 : 0.96 }}
                       >
-                        <Plus className="h-5 w-5" strokeWidth={2} aria-hidden />
+                        <Plus className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} aria-hidden />
                       </motion.button>
-                      <div className="relative min-w-[10.5rem] flex-1 sm:max-w-[13.5rem]">
+                      <div className="relative min-w-0 flex-1 sm:min-w-[10.5rem] sm:max-w-[13.5rem]">
                         <Palette
                           className="pointer-events-none absolute top-1/2 left-2.5 z-[1] h-4 w-4 -translate-y-1/2 text-amber-800 dark:text-[#fccf45]"
                           aria-hidden
@@ -1623,7 +1759,7 @@ export function DesignerWorkspace({
                           id="floating-design-style"
                           value={designStyle}
                           onChange={(e) => setDesignStyle(e.target.value as DesignStyle)}
-                          className="h-10 w-full cursor-pointer appearance-none rounded-xl border-2 border-amber-800/30 bg-white py-0 pr-8 pl-9 text-xs font-medium text-zinc-900 shadow-sm ring-1 ring-amber-400/25 sm:text-sm dark:border-[#fccf45]/55 dark:bg-[#292524] dark:text-[#fef3c7] dark:shadow-[0_2px_12px_rgba(0,0,0,0.35)] dark:ring-[#fccf45]/20"
+                          className="h-9 w-full cursor-pointer appearance-none rounded-lg border-2 border-amber-800/30 bg-white py-0 pr-7 pl-8 text-[11px] font-medium text-zinc-900 shadow-sm ring-1 ring-amber-400/25 sm:h-10 sm:rounded-xl sm:pr-8 sm:pl-9 sm:text-sm dark:border-[#fccf45]/55 dark:bg-[#292524] dark:text-[#fef3c7] dark:shadow-[0_2px_12px_rgba(0,0,0,0.35)] dark:ring-[#fccf45]/20"
                         >
                           {designStyles.map((style) => (
                             <option key={style} value={style}>
@@ -1636,7 +1772,19 @@ export function DesignerWorkspace({
                         type="button"
                         onClick={() => setPromptDraft(pickRandomSurpriseIdea(promptDraft))}
                         disabled={generateLoading}
-                        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border-2 border-amber-800/35 bg-gradient-to-b from-amber-100 to-amber-200/95 px-3 text-xs font-semibold text-amber-950 shadow-[0_2px_10px_rgba(180,83,9,0.2)] ring-1 ring-amber-400/35 transition hover:from-amber-50 hover:to-amber-100 disabled:opacity-50 sm:px-4 sm:text-sm dark:border-[#fccf45]/70 dark:from-[#422006] dark:to-[#713f12] dark:text-[#fef9c3] dark:shadow-[0_2px_14px_rgba(0,0,0,0.4)] dark:ring-[#fccf45]/25 dark:hover:from-[#4d2a0a] dark:hover:to-[#854d0e]"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-amber-800/35 bg-gradient-to-b from-amber-100 to-amber-200/95 text-amber-950 shadow-[0_2px_10px_rgba(180,83,9,0.2)] ring-1 ring-amber-400/35 transition hover:from-amber-50 hover:to-amber-100 disabled:opacity-50 sm:hidden dark:border-[#fccf45]/70 dark:from-[#422006] dark:to-[#713f12] dark:text-[#fef9c3] dark:shadow-[0_2px_14px_rgba(0,0,0,0.4)] dark:ring-[#fccf45]/25 dark:hover:from-[#4d2a0a] dark:hover:to-[#854d0e]"
+                        whileHover={{ scale: generateLoading ? 1 : 1.02 }}
+                        whileTap={{ scale: generateLoading ? 1 : 0.98 }}
+                        title="Surprise me with a random luxury prompt"
+                        aria-label="Surprise me with a random luxury prompt"
+                      >
+                        <Sparkles className="h-4 w-4 shrink-0 text-amber-800 dark:text-[#fccf45]" aria-hidden />
+                      </motion.button>
+                      <motion.button
+                        type="button"
+                        onClick={() => setPromptDraft(pickRandomSurpriseIdea(promptDraft))}
+                        disabled={generateLoading}
+                        className="hidden h-10 shrink-0 items-center gap-2 rounded-xl border-2 border-amber-800/35 bg-gradient-to-b from-amber-100 to-amber-200/95 px-4 text-xs font-semibold text-amber-950 shadow-[0_2px_10px_rgba(180,83,9,0.2)] ring-1 ring-amber-400/35 transition hover:from-amber-50 hover:to-amber-100 disabled:opacity-50 sm:inline-flex sm:text-sm dark:border-[#fccf45]/70 dark:from-[#422006] dark:to-[#713f12] dark:text-[#fef9c3] dark:shadow-[0_2px_14px_rgba(0,0,0,0.4)] dark:ring-[#fccf45]/25 dark:hover:from-[#4d2a0a] dark:hover:to-[#854d0e]"
                         whileHover={{ scale: generateLoading ? 1 : 1.02 }}
                         whileTap={{ scale: generateLoading ? 1 : 0.98 }}
                         title="Surprise me with a random luxury prompt"
@@ -1712,9 +1860,9 @@ export function DesignerWorkspace({
                       }
                     }}
                     placeholder="Refine — e.g. softer shadows, larger headline..."
-                    className="h-11 w-full border-0 bg-transparent px-4 pt-3 pb-2 text-sm text-zinc-900 placeholder:text-slate-400 outline-none dark:text-slate-900 dark:placeholder:text-slate-500"
+                    className="h-10 w-full border-0 bg-transparent px-3 pt-2.5 pb-1.5 text-sm text-zinc-900 placeholder:text-slate-400 outline-none sm:h-11 sm:px-4 sm:pt-3 sm:pb-2 dark:text-slate-900 dark:placeholder:text-slate-500"
                   />
-                  <div className="flex flex-col gap-2 border-t border-[#d4af37]/25 bg-[#faf8f3]/60 px-3 py-2.5 dark:border-white/12 dark:bg-white/[0.04] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <div className="flex flex-col gap-1.5 border-t border-[#d4af37]/25 bg-[#faf8f3]/60 px-2 py-2 dark:border-white/12 dark:bg-white/[0.04] sm:flex-row sm:gap-2 sm:px-3 sm:py-2.5 md:items-center md:justify-between md:gap-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <motion.button
                         type="button"
@@ -1722,13 +1870,13 @@ export function DesignerWorkspace({
                         disabled={isLoading}
                         title="Upload reference image"
                         aria-label="Upload reference image"
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#c4b8a5]/75 bg-gradient-to-b from-[#f8f4ec] to-[#ebe4d8] text-zinc-800 shadow-sm transition hover:from-[#f2ece2] disabled:opacity-40 dark:border-[#b8ae9c]/60 dark:from-[#e8e4dc] dark:to-[#dcd8d0]"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#c4b8a5]/75 bg-gradient-to-b from-[#f8f4ec] to-[#ebe4d8] text-zinc-800 shadow-sm transition hover:from-[#f2ece2] disabled:opacity-40 sm:h-10 sm:w-10 sm:rounded-xl dark:border-[#b8ae9c]/60 dark:from-[#e8e4dc] dark:to-[#dcd8d0]"
                         whileHover={{ scale: isLoading ? 1 : 1.04 }}
                         whileTap={{ scale: isLoading ? 1 : 0.96 }}
                       >
-                        <Plus className="h-5 w-5" strokeWidth={2} aria-hidden />
+                        <Plus className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} aria-hidden />
                       </motion.button>
-                      <div className="relative min-w-[10.5rem] flex-1 sm:max-w-[13.5rem]">
+                      <div className="relative min-w-0 flex-1 sm:min-w-[10.5rem] sm:max-w-[13.5rem]">
                         <Palette
                           className="pointer-events-none absolute top-1/2 left-2.5 z-[1] h-4 w-4 -translate-y-1/2 text-amber-800 dark:text-[#fccf45]"
                           aria-hidden
@@ -1740,7 +1888,7 @@ export function DesignerWorkspace({
                           id="floating-design-style-refine"
                           value={designStyle}
                           onChange={(e) => setDesignStyle(e.target.value as DesignStyle)}
-                          className="h-10 w-full cursor-pointer appearance-none rounded-xl border-2 border-amber-800/30 bg-white py-0 pr-8 pl-9 text-xs font-medium text-zinc-900 shadow-sm ring-1 ring-amber-400/25 sm:text-sm dark:border-[#fccf45]/55 dark:bg-[#292524] dark:text-[#fef3c7] dark:shadow-[0_2px_12px_rgba(0,0,0,0.35)] dark:ring-[#fccf45]/20"
+                          className="h-9 w-full cursor-pointer appearance-none rounded-lg border-2 border-amber-800/30 bg-white py-0 pr-7 pl-8 text-[11px] font-medium text-zinc-900 shadow-sm ring-1 ring-amber-400/25 sm:h-10 sm:rounded-xl sm:pr-8 sm:pl-9 sm:text-sm dark:border-[#fccf45]/55 dark:bg-[#292524] dark:text-[#fef3c7] dark:shadow-[0_2px_12px_rgba(0,0,0,0.35)] dark:ring-[#fccf45]/20"
                         >
                           {designStyles.map((style) => (
                             <option key={style} value={style}>

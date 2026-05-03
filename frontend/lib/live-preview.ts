@@ -38,6 +38,17 @@ function removeStreamCodeFences(stream: string): string {
     .trim();
 }
 
+/**
+ * Strip Gemini-style markdown fences (e.g. ```tsx … ```) before live preview / sanitization.
+ * Safe to call on partial streams; does not remove single `` ` `` used in JS template literals beyond triple-backtick fences.
+ */
+export function stripMarkdownCodeFencesFromStream(source: string): string {
+  if (!source) {
+    return source;
+  }
+  return removeStreamCodeFences(source);
+}
+
 /** Remove stray markdown/punctuation prefix (e.g. leading ` or . from stream). */
 function stripLeadingStreamNoiseChars(source: string): string {
   return source.replace(/^\s*[`.]+(?=\s*(?:<|import|export|function|const|let|var))/i, "");

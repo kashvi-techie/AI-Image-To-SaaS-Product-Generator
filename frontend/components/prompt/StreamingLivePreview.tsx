@@ -8,6 +8,7 @@ import {
   analyzePreviewCodeIssues,
   isPlaceholderOrWaitingLiveCode,
   prepareStreamedCodeForLive,
+  stripMarkdownCodeFencesFromStream,
 } from "@/lib/live-preview";
 import { livePreviewScope } from "@/lib/live-preview-scope";
 import {
@@ -147,26 +148,31 @@ export function StreamingLivePreview({
   luxeGoldShimmer = false,
 }: StreamingLivePreviewProps) {
   const barShimmer = luxeGoldShimmer ? "luxe-gold-shimmer" : "shimmer-block";
+  const fenceStrippedRaw = React.useMemo(
+    () => stripMarkdownCodeFencesFromStream(rawCode),
+    [rawCode],
+  );
+  const hasStreamedBody = Boolean(fenceStrippedRaw.trim());
   const normalizedRawCode = React.useMemo(
     () =>
-      appendMissingDefaultExport(rawCode, {
-        permissive: Boolean(forceRender || isGenerating),
+      appendMissingDefaultExport(fenceStrippedRaw, {
+        permissive: Boolean(forceRender || isGenerating || hasStreamedBody),
       }),
-    [rawCode, forceRender, isGenerating],
+    [fenceStrippedRaw, forceRender, isGenerating, hasStreamedBody],
   );
   const candidateLiveCode = React.useMemo(
     () =>
       prepareStreamedCodeForLive(normalizedRawCode, {
-        forceRender: forceRender || isGenerating,
+        forceRender: forceRender || isGenerating || hasStreamedBody,
       }),
-    [normalizedRawCode, forceRender, isGenerating],
+    [normalizedRawCode, forceRender, isGenerating, hasStreamedBody],
   );
 
   const lastStableLiveRef = React.useRef<string | null>(null);
   const [providerCode, setProviderCode] = React.useState(LIVE_PREVIEW_WAITING_CODE);
 
   React.useEffect(() => {
-    if (!rawCode.trim()) {
+    if (!fenceStrippedRaw.trim()) {
       if (isGenerating) {
         if (lastStableLiveRef.current) {
           setProviderCode(lastStableLiveRef.current);
@@ -181,31 +187,14 @@ export function StreamingLivePreview({
     }
 
     const next = candidateLiveCode;
-    if (isPlaceholderOrWaitingLiveCode(next)) {
-      if (
-        lastStableLiveRef.current &&
-        !isPlaceholderOrWaitingLiveCode(lastStableLiveRef.current)
-      ) {
-        setProviderCode(lastStableLiveRef.current);
-        return;
-      }
-    } else if (!isLivePreviewCodeCompilable(next)) {
-      if (
-        lastStableLiveRef.current &&
-        !isPlaceholderOrWaitingLiveCode(lastStableLiveRef.current)
-      ) {
-        setProviderCode(lastStableLiveRef.current);
-        return;
-      }
-      setProviderCode(LIVE_PREVIEW_WAITING_CODE);
-      return;
-    }
-
     setProviderCode(next);
-    if (!isPlaceholderOrWaitingLiveCode(next)) {
+    if (
+      !isPlaceholderOrWaitingLiveCode(next) &&
+      isLivePreviewCodeCompilable(next)
+    ) {
       lastStableLiveRef.current = next;
     }
-  }, [candidateLiveCode, rawCode, isGenerating]);
+  }, [candidateLiveCode, fenceStrippedRaw, isGenerating]);
 
   const handleRecover = React.useCallback(() => {
     if (lastStableLiveRef.current) {
@@ -214,14 +203,12 @@ export function StreamingLivePreview({
   }, []);
 
   const diagnostics = React.useMemo(
-    () => analyzePreviewCodeIssues(normalizedRawCode),
-    [normalizedRawCode],
+    () => analyzePreviewCodeIssues(fenceStrippedRaw),
+    [fenceStrippedRaw],
   );
-  /** Skeleton only while busy/streaming, or when code exists but live provider is still on a placeholder. */
+  /** Skeleton: server capacity, or no code yet while generating — never block the canvas once streamed text exists. */
   const showShimmer =
-    serverBusy ||
-    isGenerating ||
-    (Boolean(rawCode.trim()) && isPlaceholderOrWaitingLiveCode(providerCode));
+    serverBusy || (!hasStreamedBody && isGenerating);
 
   if (serverBusy) {
     return (
@@ -229,7 +216,7 @@ export function StreamingLivePreview({
         <div className="flex items-center justify-between border-b border-zinc-200/90 px-4 py-2 dark:border-white/10">
           <span className="text-xs text-zinc-600 dark:text-zinc-400">Live preview (streaming)</span>
         </div>
-        <div className="flex min-h-[28rem] flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="flex min-h-[min(28rem,72dvh)] flex-col items-center justify-center gap-4 p-6 text-center sm:min-h-[28rem] sm:p-8">
           <div
             className={
               luxeGoldShimmer
@@ -289,8 +276,8 @@ export function StreamingLivePreview({
       >
         {luxeGoldShimmer ? "Live preview · Luxe canvas" : "Live preview (streaming)"}
       </div>
-      <div className="min-h-[28rem] p-4">
-        {!diagnostics.hasDefaultExport && rawCode.trim() && !forceRender ? (
+      <div className="min-h-[min(28rem,72dvh)] p-3 sm:min-h-[28rem] sm:p-4">
+        {!diagnostics.hasDefaultExport && hasStreamedBody && !forceRender ? (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-300/30 dark:bg-amber-500/10 dark:text-amber-200">
             Streamed code has no <code>export default ...</code> yet; turn on <strong>Force render</strong> to try a partial preview.
           </div>
@@ -339,8 +326,8 @@ export function StreamingLivePreview({
             <div
               className={
                 luxeGoldShimmer
-                  ? "max-h-[26rem] min-h-[20rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-[#e5ded3]/90 bg-white p-4 text-black shadow-[inset_0_2px_12px_rgba(45,38,28,0.04)] [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible dark:border-white/12 dark:bg-[#faf9f7] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]"
-                  : "max-h-[26rem] min-h-[20rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-white p-4 text-black [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible"
+                  ? "max-h-[min(26rem,65dvh)] min-h-[min(20rem,50dvh)] overflow-y-auto overflow-x-auto rounded-2xl border border-[#e5ded3]/90 bg-white p-3 text-black shadow-[inset_0_2px_12px_rgba(45,38,28,0.04)] sm:max-h-[26rem] sm:min-h-[20rem] sm:p-4 [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible dark:border-white/12 dark:bg-[#faf9f7] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]"
+                  : "max-h-[min(26rem,65dvh)] min-h-[min(20rem,50dvh)] overflow-y-auto overflow-x-auto rounded-2xl border border-white/10 bg-white p-3 text-black sm:max-h-[26rem] sm:min-h-[20rem] sm:p-4 [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible"
               }
             >
               {!showShimmer ? (
