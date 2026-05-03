@@ -791,7 +791,7 @@ export function DesignerWorkspace({
               id="design-style"
               value={designStyle}
               onChange={(e) => setDesignStyle(e.target.value as DesignStyle)}
-              className="glass-input h-12 w-full rounded-xl px-4 text-sm text-zinc-900 focus:border-amber-400/60 focus:outline-none focus:ring-2 focus:ring-amber-300/30 dark:text-zinc-200"
+              className="h-12 w-full rounded-xl border-2 border-amber-800/30 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm ring-1 ring-amber-400/25 focus:border-amber-500/70 focus:outline-none focus:ring-2 focus:ring-amber-400/35 dark:border-[#fccf45]/50 dark:bg-[#292524] dark:text-[#fef3c7] dark:focus:border-[#fccf45] dark:focus:ring-[#fccf45]/25"
             >
               {designStyles.map((style) => (
                 <option key={style} value={style}>
@@ -825,12 +825,12 @@ export function DesignerWorkspace({
               type="button"
               onClick={() => setPromptDraft(pickRandomSurpriseIdea(promptDraft))}
               disabled={generateLoading}
-              className="glass-btn inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl px-3 text-sm font-medium text-violet-900 transition hover:bg-violet-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-100 dark:hover:bg-violet-500/15"
+              className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-amber-800/35 bg-gradient-to-b from-amber-100 to-amber-200/95 px-3 text-sm font-semibold text-amber-950 shadow-[0_2px_10px_rgba(180,83,9,0.2)] ring-1 ring-amber-400/35 transition hover:from-amber-50 hover:to-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#fccf45]/70 dark:from-[#422006] dark:to-[#713f12] dark:text-[#fef9c3] dark:shadow-[0_2px_14px_rgba(0,0,0,0.35)] dark:ring-[#fccf45]/25 dark:hover:from-[#4d2a0a] dark:hover:to-[#854d0e]"
               whileHover={{ scale: generateLoading ? 1 : 1.02 }}
               whileTap={{ scale: generateLoading ? 1 : 0.98 }}
               title="Need inspiration? Click for a random luxury prompt."
             >
-              <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
+              <Sparkles className="h-4 w-4 shrink-0 text-amber-800 dark:text-[#fccf45]" aria-hidden />
               Surprise
             </motion.button>
             <button
@@ -1597,7 +1597,7 @@ export function DesignerWorkspace({
                       </motion.button>
                       <div className="relative min-w-[10.5rem] flex-1 sm:max-w-[13.5rem]">
                         <Palette
-                          className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-zinc-500 dark:text-zinc-400"
+                          className="pointer-events-none absolute top-1/2 left-2.5 z-[1] h-4 w-4 -translate-y-1/2 text-amber-800 dark:text-[#fccf45]"
                           aria-hidden
                         />
                         <label htmlFor="floating-design-style" className="sr-only">
@@ -1607,7 +1607,7 @@ export function DesignerWorkspace({
                           id="floating-design-style"
                           value={designStyle}
                           onChange={(e) => setDesignStyle(e.target.value as DesignStyle)}
-                          className="glass-input h-10 w-full cursor-pointer appearance-none rounded-xl border border-[#c4b8a5]/55 py-0 pr-8 pl-9 text-xs text-zinc-900 sm:text-sm dark:border-white/15 dark:text-zinc-100"
+                          className="h-10 w-full cursor-pointer appearance-none rounded-xl border-2 border-amber-800/30 bg-white py-0 pr-8 pl-9 text-xs font-medium text-zinc-900 shadow-sm ring-1 ring-amber-400/25 sm:text-sm dark:border-[#fccf45]/55 dark:bg-[#292524] dark:text-[#fef3c7] dark:shadow-[0_2px_12px_rgba(0,0,0,0.35)] dark:ring-[#fccf45]/20"
                         >
                           {designStyles.map((style) => (
                             <option key={style} value={style}>
@@ -1620,12 +1620,12 @@ export function DesignerWorkspace({
                         type="button"
                         onClick={() => setPromptDraft(pickRandomSurpriseIdea(promptDraft))}
                         disabled={generateLoading}
-                        className="glass-btn inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-medium text-violet-900 sm:px-4 sm:text-sm disabled:opacity-50 dark:text-violet-100"
+                        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border-2 border-amber-800/35 bg-gradient-to-b from-amber-100 to-amber-200/95 px-3 text-xs font-semibold text-amber-950 shadow-[0_2px_10px_rgba(180,83,9,0.2)] ring-1 ring-amber-400/35 transition hover:from-amber-50 hover:to-amber-100 disabled:opacity-50 sm:px-4 sm:text-sm dark:border-[#fccf45]/70 dark:from-[#422006] dark:to-[#713f12] dark:text-[#fef9c3] dark:shadow-[0_2px_14px_rgba(0,0,0,0.4)] dark:ring-[#fccf45]/25 dark:hover:from-[#4d2a0a] dark:hover:to-[#854d0e]"
                         whileHover={{ scale: generateLoading ? 1 : 1.02 }}
                         whileTap={{ scale: generateLoading ? 1 : 0.98 }}
                         title="Surprise me with a random luxury prompt"
                       >
-                        <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
+                        <Sparkles className="h-4 w-4 shrink-0 text-amber-800 dark:text-[#fccf45]" aria-hidden />
                         Surprise me
                       </motion.button>
                     </div>
@@ -1714,7 +1714,7 @@ export function DesignerWorkspace({
                       </motion.button>
                       <div className="relative min-w-[10.5rem] flex-1 sm:max-w-[13.5rem]">
                         <Palette
-                          className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-zinc-500 dark:text-zinc-400"
+                          className="pointer-events-none absolute top-1/2 left-2.5 z-[1] h-4 w-4 -translate-y-1/2 text-amber-800 dark:text-[#fccf45]"
                           aria-hidden
                         />
                         <label htmlFor="floating-design-style-refine" className="sr-only">
@@ -1724,7 +1724,7 @@ export function DesignerWorkspace({
                           id="floating-design-style-refine"
                           value={designStyle}
                           onChange={(e) => setDesignStyle(e.target.value as DesignStyle)}
-                          className="glass-input h-10 w-full cursor-pointer appearance-none rounded-xl border border-[#c4b8a5]/55 py-0 pr-8 pl-9 text-xs text-zinc-900 sm:text-sm dark:border-white/15 dark:text-zinc-100"
+                          className="h-10 w-full cursor-pointer appearance-none rounded-xl border-2 border-amber-800/30 bg-white py-0 pr-8 pl-9 text-xs font-medium text-zinc-900 shadow-sm ring-1 ring-amber-400/25 sm:text-sm dark:border-[#fccf45]/55 dark:bg-[#292524] dark:text-[#fef3c7] dark:shadow-[0_2px_12px_rgba(0,0,0,0.35)] dark:ring-[#fccf45]/20"
                         >
                           {designStyles.map((style) => (
                             <option key={style} value={style}>

@@ -333,9 +333,75 @@ body {
   color: #fafaf9;
 }
 
-/* Light: color orbs are animated in the DOM (LandingPage); keep mesh clear */
+/* Home mesh: slow rotating wash (light/dark) + orbs in DOM; overflow clips blur */
 .luxe-dashboard-mesh {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
   background: transparent;
+}
+
+/* Constant slow rotation — seamless loop (linear) */
+@keyframes luxe-home-mesh-rotate {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* Light home: soft pastel conic drift under the orbs */
+html:not(.dark) .luxe-dashboard-mesh::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: max(165vw, 165vh);
+  height: max(165vw, 165vh);
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    rgba(254, 249, 243, 0.72) 0deg,
+    rgba(239, 233, 180, 0.55) 52deg,
+    rgba(251, 186, 152, 0.48) 118deg,
+    rgba(221, 255, 226, 0.42) 198deg,
+    rgba(191, 228, 255, 0.48) 268deg,
+    rgba(255, 254, 247, 0.65) 330deg,
+    rgba(254, 249, 243, 0.72) 360deg
+  );
+  filter: blur(72px);
+  opacity: 0.88;
+  pointer-events: none;
+  animation: luxe-home-mesh-rotate 130s linear infinite;
+  transform-origin: center center;
+}
+
+/* Dark home: warm conic drift under the radial stack */
+html.dark .luxe-dashboard-mesh::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: max(170vw, 170vh);
+  height: max(170vw, 170vh);
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    rgba(38, 30, 1, 0.85) 0deg,
+    rgba(83, 29, 1, 0.65) 70deg,
+    rgba(252, 207, 69, 0.14) 145deg,
+    rgba(38, 30, 18, 0.82) 215deg,
+    rgba(191, 228, 255, 0.08) 285deg,
+    rgba(38, 30, 1, 0.85) 360deg
+  );
+  filter: blur(88px);
+  opacity: 0.75;
+  pointer-events: none;
+  animation: luxe-home-mesh-rotate 155s linear infinite reverse;
+  transform-origin: center center;
 }
 
 /* LuxeGen working page — warm cream, amber, pure gold mesh (luxury gold feel; palette #FCCF45 / #d4af37) */
@@ -462,7 +528,7 @@ body {
   top: -14%;
   left: -16%;
   background: #efe9b4;
-  animation: luxe-orb-drift-1 42s ease-in-out infinite;
+  animation: luxe-orb-drift-1 42s linear infinite;
 }
 
 .luxe-light-orb-2 {
@@ -471,7 +537,7 @@ body {
   top: -8%;
   right: -14%;
   background: #fbba98;
-  animation: luxe-orb-drift-2 36s ease-in-out infinite;
+  animation: luxe-orb-drift-2 36s linear infinite;
   animation-delay: -4s;
 }
 
@@ -481,7 +547,7 @@ body {
   top: 38%;
   left: 28%;
   background: #fffebf;
-  animation: luxe-orb-drift-3 50s ease-in-out infinite;
+  animation: luxe-orb-drift-3 50s linear infinite;
   animation-delay: -8s;
 }
 
@@ -491,7 +557,7 @@ body {
   bottom: -12%;
   left: -10%;
   background: #ddffe2;
-  animation: luxe-orb-drift-4 44s ease-in-out infinite;
+  animation: luxe-orb-drift-4 44s linear infinite;
   animation-delay: -12s;
 }
 
@@ -501,12 +567,17 @@ body {
   bottom: -6%;
   right: -12%;
   background: #bfe4ff;
-  animation: luxe-orb-drift-5 38s ease-in-out infinite;
+  animation: luxe-orb-drift-5 38s linear infinite;
   animation-delay: -6s;
 }
 
-/* Dark mesh: static radial layers (same hex palette) */
-.dark .luxe-dashboard-mesh {
+/* Dark mesh: radial stack above rotating ::before (z-index layering) */
+html.dark .luxe-dashboard-mesh::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
   background-image:
     radial-gradient(ellipse 120% 90% at 50% 110%, rgba(38, 30, 1, 0.95), transparent 52%),
     radial-gradient(ellipse 90% 70% at 10% 15%, rgba(83, 29, 1, 0.55), transparent 48%),
@@ -514,6 +585,46 @@ body {
     radial-gradient(circle at 55% 35%, rgba(252, 207, 69, 0.14), transparent 42%),
     radial-gradient(ellipse 70% 55% at 20% 75%, rgba(221, 255, 226, 0.1), transparent 45%),
     radial-gradient(ellipse 65% 50% at 88% 72%, rgba(191, 228, 255, 0.12), transparent 44%);
+  animation: luxe-dark-mesh-radial-drift 85s linear infinite;
+}
+
+@keyframes luxe-dark-mesh-radial-drift {
+  0%,
+  100% {
+    background-position:
+      0% 0%,
+      0% 0%,
+      0% 0%,
+      0% 0%,
+      0% 0%,
+      0% 0%;
+  }
+
+  50% {
+    background-position:
+      2% -1.5%,
+      -1.5% 1.5%,
+      1.5% -1%,
+      -1% 1%,
+      1.2% 1.2%,
+      -1.2% -0.8%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not(.dark) .luxe-dashboard-mesh::before,
+  html.dark .luxe-dashboard-mesh::before {
+    animation: none;
+  }
+
+  html.dark .luxe-dashboard-mesh::after {
+    animation: none;
+  }
+
+  .luxe-light-orb,
+  .luxe-dark-orb {
+    animation: none !important;
+  }
 }
 
 /* Dark: slow-moving blurred orbs (531D01, FCCF45, DDFFE2, BFE4FF, 261E01) */
@@ -533,7 +644,7 @@ body {
   background: #531d01;
   mix-blend-mode: soft-light;
   opacity: 0.55;
-  animation: luxe-orb-drift-1 41s ease-in-out infinite;
+  animation: luxe-orb-drift-1 41s linear infinite;
 }
 
 .luxe-dark-orb-2 {
@@ -544,7 +655,7 @@ body {
   background: #fccf45;
   mix-blend-mode: screen;
   opacity: 0.2;
-  animation: luxe-orb-drift-2 35s ease-in-out infinite;
+  animation: luxe-orb-drift-2 35s linear infinite;
   animation-delay: -5s;
 }
 
@@ -556,7 +667,7 @@ body {
   background: #ddffe2;
   mix-blend-mode: screen;
   opacity: 0.14;
-  animation: luxe-orb-drift-3 48s ease-in-out infinite;
+  animation: luxe-orb-drift-3 48s linear infinite;
   animation-delay: -10s;
 }
 
@@ -568,7 +679,7 @@ body {
   background: #bfe4ff;
   mix-blend-mode: screen;
   opacity: 0.16;
-  animation: luxe-orb-drift-4 43s ease-in-out infinite;
+  animation: luxe-orb-drift-4 43s linear infinite;
   animation-delay: -7s;
 }
 
@@ -580,6 +691,6 @@ body {
   background: #261e01;
   mix-blend-mode: normal;
   opacity: 0.5;
-  animation: luxe-orb-drift-5 39s ease-in-out infinite;
+  animation: luxe-orb-drift-5 39s linear infinite;
   animation-delay: -3s;
 }

@@ -290,7 +290,7 @@ export function LandingPage() {
                   onClick={applySurprisePrompt}
                   title="Fill with a random luxury UI idea"
                   aria-label="Surprise me with a random prompt"
-                  className="absolute bottom-10 left-10 z-[1] inline-flex items-center gap-2 rounded-md border border-[#c4b8a5]/70 bg-gradient-to-b from-[#f5f0e8] to-[#e8e2d8] px-3 py-2 text-xs font-medium text-zinc-800 shadow-sm transition hover:from-[#efe9e0] hover:to-[#e0d9ce] dark:bottom-3 dark:left-3 dark:border-[#b8ae9c]/60 dark:from-[#3a3428] dark:to-[#2e2920] dark:text-[#fccf45] dark:hover:from-[#423a2e] dark:hover:to-[#322c24]"
+                  className="absolute bottom-10 left-10 z-20 inline-flex items-center gap-2 rounded-xl border-2 border-amber-800/35 bg-gradient-to-b from-amber-100 to-amber-200/95 px-3.5 py-2.5 text-xs font-semibold text-amber-950 shadow-[0_4px_14px_rgba(180,83,9,0.25)] ring-1 ring-amber-400/40 transition hover:from-amber-50 hover:to-amber-100 hover:ring-amber-500/50 dark:bottom-3 dark:left-3 dark:border-[#fccf45]/80 dark:from-[#422006] dark:to-[#713f12] dark:text-[#fef9c3] dark:shadow-[0_4px_20px_rgba(0,0,0,0.5)] dark:ring-[#fccf45]/35 dark:hover:from-[#4d2a0a] dark:hover:to-[#854d0e]"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -305,12 +305,12 @@ export function LandingPage() {
                   disabled={!promptDraft.trim()}
                   title="Continue"
                   aria-label="Continue to workspace"
-                  className="absolute right-10 bottom-10 flex h-11 w-11 items-center justify-center rounded-md border border-[#c4b8a5]/70 bg-gradient-to-b from-[#ebe4d8] to-[#dcd3c4] shadow-sm transition hover:from-[#e5ddd0] hover:to-[#d4cbbf] disabled:cursor-not-allowed disabled:opacity-35 dark:right-3 dark:bottom-3 dark:border-[#b8ae9c]/60 dark:from-[#d4d0c8] dark:to-[#c9c5bc] dark:hover:from-[#d4d0c8] dark:hover:to-[#c9c5bc]"
+                  className="absolute right-10 bottom-10 z-20 flex h-12 w-12 items-center justify-center rounded-xl border-2 border-amber-800/40 bg-gradient-to-b from-amber-200 to-amber-300/95 shadow-[0_4px_14px_rgba(180,83,9,0.3)] ring-1 ring-amber-500/30 transition hover:from-amber-100 hover:to-amber-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:ring-0 dark:right-3 dark:bottom-3 dark:border-[#fccf45]/75 dark:from-[#ca8a04] dark:to-[#a16207] dark:shadow-[0_4px_20px_rgba(0,0,0,0.45)] dark:ring-[#fef08a]/40 dark:hover:from-[#eab308] dark:hover:to-[#ca8a04]"
                   whileHover={{ scale: promptDraft.trim() ? 1.04 : 1 }}
                   whileTap={{ scale: promptDraft.trim() ? 0.96 : 1 }}
                 >
                   <Play
-                    className="ml-0.5 h-4 w-4 fill-zinc-900 text-zinc-900 dark:fill-black dark:text-black"
+                    className="ml-0.5 h-4 w-4 fill-amber-950 text-amber-950 dark:fill-[#1c1917] dark:text-[#1c1917]"
                     aria-hidden
                   />
                 </motion.button>
