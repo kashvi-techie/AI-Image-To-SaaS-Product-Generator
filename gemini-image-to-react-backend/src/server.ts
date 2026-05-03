@@ -7,6 +7,8 @@ import { imageToStructuredReact } from "./gemini.js";
 import { streamPromptGenerateToResponse } from "./prompt-stream.js";
 
 const PORT = Number(process.env.PORT || 8080) || 8080;
+/** Bind all IPv4 interfaces so 127.0.0.1 and LAN work; avoids “localhost” resolving to ::1 only. */
+const LISTEN_HOST = (process.env.LISTEN_HOST ?? process.env.HOST ?? "0.0.0.0").trim() || "0.0.0.0";
 
 /** Comma-separated list with safe local defaults + optional production frontend URL. */
 const defaultCorsOrigins = [
@@ -88,17 +90,17 @@ app.get("/health", (req, res) => {
     host: req.headers.host,
     "user-agent": req.headers["user-agent"]?.slice(0, 80),
   });
-  /** Read at request time so a restarted process always reflects the current `process.env`. */
-  if (!process.env.GEMINI_API_KEY?.trim()) {
-    res.status(503).json({
-      ok: false,
-      error: "GEMINI_API_KEY is missing",
-      message:
-        "Set GEMINI_API_KEY in backend .env and restart the Express server after rotating the key.",
-    });
-    return;
-  }
-  res.json({ ok: true, model: GEMINI_MODEL });
+  /**
+   * Always 200 when this process is serving — liveness for Next.js proxy.
+   * Gemini readiness is a separate flag so missing API key is not confused with “Express unreachable”.
+   */
+  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY?.trim());
+  res.status(200).json({
+    ok: true,
+    alive: true,
+    geminiConfigured,
+    model: geminiConfigured ? GEMINI_MODEL : null,
+  });
 });
 
 app.post(
@@ -168,12 +170,13 @@ app.post(
   },
 );
 
-/** `0.0.0.0` — all interfaces; frontend can still use http://127.0.0.1:PORT */
 console.log(
-  `[server] app.listen(${PORT}, "0.0.0.0") — process.env.PORT=${process.env.PORT === undefined ? "(unset)" : JSON.stringify(process.env.PORT)}`,
+  `[server] app.listen(${PORT}, ${JSON.stringify(LISTEN_HOST)}) — PORT env=${process.env.PORT === undefined ? "(unset)" : JSON.stringify(process.env.PORT)}`,
 );
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Backend is ALIVE — bound to 0.0.0.0:${PORT} (all IPv4 interfaces; not 127.0.0.1-only)`);
+app.listen(PORT, LISTEN_HOST, () => {
+  console.log(
+    `Backend is ALIVE — bound to ${LISTEN_HOST}:${PORT} (use 0.0.0.0 for all IPv4; frontend BACKEND_URL can stay http://127.0.0.1:${PORT})`,
+  );
   console.log(`Reachable from this machine at http://127.0.0.1:${PORT} and http://localhost:${PORT}`);
   console.log(`Model: ${GEMINI_MODEL}`);
   if (!isGeminiConfigured) {

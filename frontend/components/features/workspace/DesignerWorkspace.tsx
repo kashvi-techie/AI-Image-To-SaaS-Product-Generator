@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Settings,
   Sparkles,
+  WifiOff,
   X,
 } from "lucide-react";
 import {
@@ -240,9 +241,6 @@ export function DesignerWorkspace({
   /** Shown after a successful stream completes (luxe workspace); auto-dismisses. */
   const [showGenerationCompleteBadge, setShowGenerationCompleteBadge] =
     useState(false);
-  /** Compact offline UX below sm: dismissible strip + red-dot recall. */
-  const [mobileBackendOfflineDismissed, setMobileBackendOfflineDismissed] =
-    useState(false);
   /** Below sm: show canvas or streamed code to reduce vertical clutter. */
   const [luxeMobileWorkspaceTab, setLuxeMobileWorkspaceTab] = useState<
     "canvas" | "code"
@@ -250,22 +248,23 @@ export function DesignerWorkspace({
   /** Lift fixed prompt bar when mobile browser chrome / keyboard shrinks visual viewport. */
   const [floatingBarViewportInset, setFloatingBarViewportInset] = useState(0);
   const barPulseControls = useAnimationControls();
-  /** Health can lag behind a successful stream; hide offline UX while the proxy clearly worked. */
-  const hasStreamedBody = Boolean(streamedPromptCode.trim());
+  /**
+   * Any streamed characters or active request means the Next→Express path is in use;
+   * hide blocking offline UI (health poll can lag behind a working stream).
+   */
   const backendConnectionProven =
-    hasStreamedBody || generateLoading || isLoading;
+    streamedPromptCode.length > 0 || generateLoading || isLoading;
   const generateBlockedByBackend =
     isLuxeWorkingPage &&
     backendHealth === "offline" &&
     !backendConnectionProven;
   const showBackendOfflineBanner =
     backendHealth === "offline" && !backendConnectionProven;
-
-  useEffect(() => {
-    if (!showBackendOfflineBanner) {
-      setMobileBackendOfflineDismissed(false);
-    }
-  }, [showBackendOfflineBanner]);
+  /** Below sm: tiny navbar hint only (no in-workspace card). */
+  const showMobileNavbarOffline =
+    isLuxeWorkingPage &&
+    useFloatingPromptBar &&
+    showBackendOfflineBanner;
 
   useEffect(() => {
     if (!useFloatingPromptBar || typeof window === "undefined") {
@@ -276,7 +275,11 @@ export function DesignerWorkspace({
       return;
     }
     function syncBarInset(): void {
-      const obscured = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      const vp = window.visualViewport;
+      if (!vp) {
+        return;
+      }
+      const obscured = Math.max(0, window.innerHeight - vp.height - vp.offsetTop);
       setFloatingBarViewportInset(obscured > 48 ? obscured : 0);
     }
     syncBarInset();
@@ -330,27 +333,44 @@ export function DesignerWorkspace({
     setBackendHealth("checking");
     try {
       const res = await fetch("/api/health", { cache: "no-store" });
-      const data = (await res.json()) as {
+      let data: {
         ok?: boolean;
-        model?: string;
+        alive?: boolean;
+        geminiConfigured?: boolean;
+        model?: string | null;
         proxyBase?: string;
         error?: string;
         message?: string;
       };
-      if (res.ok && data.ok !== false) {
-        if (process.env.NODE_ENV === "development") {
-          const baseLabel = data.proxyBase ?? "BACKEND_URL";
-          console.info(
-            `[Luxegen] Health: OK — proxy → ${baseLabel} (model: ${String(data.model ?? "unknown")})`,
-          );
-        }
-        setBackendHealth("ready");
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        setBackendHealth("offline");
         return;
       }
+
+      if (res.ok) {
+        if (data.geminiConfigured === false) {
+          setBackendHealth("no_gemini");
+          return;
+        }
+        if (data.ok !== false || data.alive === true) {
+          if (process.env.NODE_ENV === "development") {
+            const baseLabel = data.proxyBase ?? "BACKEND_URL";
+            console.info(
+              `[Luxegen] Health: OK — proxy → ${baseLabel} (model: ${String(data.model ?? "unknown")})`,
+            );
+          }
+          setBackendHealth("ready");
+          return;
+        }
+      }
+
       if (res.status === 503) {
         setBackendHealth("no_gemini");
         return;
       }
+
       setBackendHealth("offline");
     } catch {
       setBackendHealth("offline");
@@ -999,6 +1019,18 @@ export function DesignerWorkspace({
                   Gemini 1.5
                 </div>
               ) : null}
+              {showMobileNavbarOffline ? (
+                <button
+                  type="button"
+                  onClick={() => void checkBackendHealth()}
+                  className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-400/45 bg-rose-50/90 text-rose-600 shadow-sm sm:hidden dark:border-rose-500/35 dark:bg-rose-950/55 dark:text-rose-300"
+                  title="Backend offline — tap to retry. Ensure Express is on :8080 and BACKEND_URL=http://127.0.0.1:8080"
+                  aria-label="Backend offline, retry connection"
+                >
+                  <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 ring-2 ring-rose-100 dark:ring-rose-900/80" aria-hidden />
+                  <WifiOff className="h-4 w-4 opacity-90" aria-hidden />
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setPromptHistoryOpen((current) => !current)}
@@ -1256,100 +1288,50 @@ export function DesignerWorkspace({
           {isLuxeWorkingPage ? (
             <div className="luxe-thinkhall-surface rounded-[2rem] border border-[#d4af37]/28 bg-white/55 p-4 ring-1 ring-[#d4af37]/18 backdrop-blur-2xl dark:bg-[#1b1610]/55 dark:ring-[#fccf45]/15 md:p-6">
               {showBackendOfflineBanner ? (
-                <>
-                  <div
-                    role="alert"
-                    className="mb-5 hidden flex-col gap-3 rounded-2xl border border-rose-300/50 bg-rose-50/95 px-4 py-4 text-rose-950 shadow-sm sm:flex dark:border-rose-500/35 dark:bg-rose-950/40 dark:text-rose-50 md:flex-row md:items-center md:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className={`${luxeSerif.className} text-base font-semibold tracking-tight`}>
-                        Backend offline
-                      </p>
-                      <p className="mt-1 text-sm text-rose-900/90 dark:text-rose-100/85">
-                        Next.js cannot reach your Express API. Start{" "}
-                        <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
-                          gemini-image-to-react-backend
-                        </code>{" "}
-                        (<kbd className="font-sans text-xs">npm run dev</kbd>) and ensure{" "}
-                        <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
-                          BACKEND_URL
-                        </code>{" "}
-                        in <code className="font-mono text-xs">frontend/.env.local</code> matches the
-                        server port (e.g.{" "}
-                        <span className="whitespace-nowrap">http://127.0.0.1:8080</span>). Use{" "}
-                        <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
-                          /api/test-direct
-                        </code>{" "}
-                        for a raw probe to the backend.
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2 self-start md:self-center">
-                      <button
-                        type="button"
-                        onClick={() => void checkBackendHealth()}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-400/60 bg-white px-4 py-2.5 text-sm font-medium text-rose-900 transition hover:bg-rose-100/80 dark:border-rose-400/40 dark:bg-rose-900/50 dark:text-rose-50 dark:hover:bg-rose-900/80"
-                      >
-                        <RefreshCw className="h-4 w-4" aria-hidden />
-                        Retry connection
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void testConnectionToApi()}
-                        className="inline-flex items-center justify-center rounded-xl border border-rose-500/40 bg-rose-100/80 px-4 py-2.5 text-sm font-medium text-rose-950 transition hover:bg-rose-200/90 dark:border-rose-400/35 dark:bg-rose-900/60 dark:text-rose-100 dark:hover:bg-rose-800/70"
-                      >
-                        Test connection
-                      </button>
-                    </div>
+                <div
+                  role="alert"
+                  className="mb-5 hidden flex-col gap-3 rounded-2xl border border-rose-300/50 bg-rose-50/95 px-4 py-4 text-rose-950 shadow-sm sm:flex dark:border-rose-500/35 dark:bg-rose-950/40 dark:text-rose-50 md:flex-row md:items-center md:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className={`${luxeSerif.className} text-base font-semibold tracking-tight`}>
+                      Backend offline
+                    </p>
+                    <p className="mt-1 text-sm text-rose-900/90 dark:text-rose-100/85">
+                      Next.js cannot reach your Express API. Start{" "}
+                      <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
+                        gemini-image-to-react-backend
+                      </code>{" "}
+                      (<kbd className="font-sans text-xs">npm run dev</kbd>) and ensure{" "}
+                      <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
+                        BACKEND_URL
+                      </code>{" "}
+                      in <code className="font-mono text-xs">frontend/.env.local</code> matches the
+                      server port (e.g.{" "}
+                      <span className="whitespace-nowrap">http://127.0.0.1:8080</span>). Use{" "}
+                      <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
+                        /api/test-direct
+                      </code>{" "}
+                      for a raw probe to the backend.
+                    </p>
                   </div>
-                  {!mobileBackendOfflineDismissed ? (
-                    <div
-                      role="alert"
-                      className="mb-3 flex items-center gap-2 rounded-xl border border-rose-300/60 bg-rose-50/95 px-2.5 py-2 text-rose-950 shadow-sm sm:hidden dark:border-rose-500/40 dark:bg-rose-950/50 dark:text-rose-50"
+                  <div className="flex shrink-0 flex-wrap gap-2 self-start md:self-center">
+                    <button
+                      type="button"
+                      onClick={() => void checkBackendHealth()}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-400/60 bg-white px-4 py-2.5 text-sm font-medium text-rose-900 transition hover:bg-rose-100/80 dark:border-rose-400/40 dark:bg-rose-900/50 dark:text-rose-50 dark:hover:bg-rose-900/80"
                     >
-                      <span className="relative flex h-2.5 w-2.5 shrink-0">
-                        <span
-                          className="absolute inset-0 animate-ping rounded-full bg-rose-400 opacity-50"
-                          aria-hidden
-                        />
-                        <span className="relative block h-2.5 w-2.5 rounded-full bg-rose-600" />
-                      </span>
-                      <p className="min-w-0 flex-1 text-[11px] leading-snug">
-                        Express unreachable — start backend on{" "}
-                        <span className="whitespace-nowrap">:8080</span>, check{" "}
-                        <code className="rounded bg-black/5 px-0.5 text-[10px] dark:bg-white/10">
-                          BACKEND_URL
-                        </code>
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => void checkBackendHealth()}
-                        className="shrink-0 rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white dark:bg-rose-500"
-                      >
-                        Retry
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMobileBackendOfflineDismissed(true)}
-                        className="shrink-0 rounded-lg p-1 text-rose-700 hover:bg-rose-100 dark:text-rose-200 dark:hover:bg-rose-900/60"
-                        aria-label="Dismiss offline notice"
-                      >
-                        <X className="h-4 w-4" aria-hidden />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="mb-2 flex justify-end sm:hidden">
-                      <button
-                        type="button"
-                        onClick={() => setMobileBackendOfflineDismissed(false)}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-rose-400/45 bg-rose-50/95 px-2.5 py-1 text-[10px] font-medium text-rose-900 shadow-sm dark:border-rose-500/35 dark:bg-rose-950/60 dark:text-rose-100"
-                        title="Backend offline — tap for notice"
-                      >
-                        <span className="h-2 w-2 shrink-0 rounded-full bg-rose-600" aria-hidden />
-                        Offline
-                      </button>
-                    </div>
-                  )}
-                </>
+                      <RefreshCw className="h-4 w-4" aria-hidden />
+                      Retry connection
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void testConnectionToApi()}
+                      className="inline-flex items-center justify-center rounded-xl border border-rose-500/40 bg-rose-100/80 px-4 py-2.5 text-sm font-medium text-rose-950 transition hover:bg-rose-200/90 dark:border-rose-400/35 dark:bg-rose-900/60 dark:text-rose-100 dark:hover:bg-rose-800/70"
+                    >
+                      Test connection
+                    </button>
+                  </div>
+                </div>
               ) : null}
               {backendHealth === "no_gemini" ? (
                 <div

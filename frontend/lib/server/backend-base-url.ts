@@ -53,6 +53,12 @@ export function getBackendBaseUrlMetadata(): {
 
   const pub = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (!pub) {
+    if (process.env.NODE_ENV === "development") {
+      return {
+        base: preferIpv4LocalhostBase("http://127.0.0.1:8080"),
+        envKey: null,
+      };
+    }
     return { base: null, envKey: null };
   }
   try {

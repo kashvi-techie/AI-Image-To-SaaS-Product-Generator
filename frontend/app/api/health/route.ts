@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 
 /**
  * Proxies GET /health from Express so the UI can verify BACKEND_URL without CORS.
+ * Express returns 200 whenever the process is up; `geminiConfigured` in JSON indicates Gemini readiness.
  * Same base URL as POST /api/generate → `${base}/api/generate`.
  */
 export async function GET(): Promise<Response> {
