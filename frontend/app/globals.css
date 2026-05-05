@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Streamed react-live JSX — class names are not in repo source unless listed here */
+@source "../lib/live-preview-tailwind-scan-hints.ts";
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {

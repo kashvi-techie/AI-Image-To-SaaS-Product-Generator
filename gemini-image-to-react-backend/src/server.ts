@@ -1,6 +1,13 @@
-import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import cors from "cors";
 import express from "express";
+
+/** Resolve `.env` from package root (works for `tsx src/server.ts` and `node dist/server.js`). */
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+dotenv.config({ path: path.join(backendRoot, ".env") });
+dotenv.config({ path: path.join(backendRoot, ".env.local"), override: true });
 import multer from "multer";
 import { ZodError } from "zod";
 import { imageToStructuredReact } from "./gemini.js";
@@ -58,25 +65,41 @@ const app = express();
 
 app.use(express.json({ limit: "4mb" }));
 
-console.log("[server] CORS allowed origins:", corsOrigins);
+/** Strict allowlist only when NODE_ENV=production (npm run dev / tsx usually unset → permissive). */
+const isProduction = process.env.NODE_ENV === "production";
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-      const normalized = origin.replace(/\/$/, "");
-      const isAllowed = corsOrigins.includes(normalized);
-      callback(isAllowed ? null : new Error(`CORS blocked for origin: ${origin}`), isAllowed);
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Accept", "Authorization", "X-Requested-With"],
-    credentials: true,
-    optionsSuccessStatus: 204,
-  }),
+/** Local dev (e.g. Next on :3001): reflect browser origin + cookies if needed. */
+const corsDevelopment = {
+  origin: true as boolean | string | RegExp | string[],
+  credentials: true,
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Accept", "Authorization", "X-Requested-With"],
+  optionsSuccessStatus: 204 as const,
+};
+
+console.log(
+  "[server] CORS:",
+  isProduction ? `production allowlist (${corsOrigins.length} origins)` : "development: { origin: true, credentials: true }",
 );
+
+app.use(cors(isProduction ? {
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    const normalized = origin.replace(/\/$/, "");
+    const isAllowed = corsOrigins.includes(normalized);
+    callback(
+      isAllowed ? null : new Error(`CORS blocked for origin: ${origin}`),
+      isAllowed,
+    );
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Accept", "Authorization", "X-Requested-With"],
+  credentials: true,
+  optionsSuccessStatus: 204,
+} : corsDevelopment));
 
 app.post("/api/generate", async (req, res): Promise<void> => {
   console.log("[api/generate] request", { origin: req.headers.origin });

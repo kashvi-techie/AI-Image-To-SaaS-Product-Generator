@@ -193,8 +193,8 @@ function braceDelta(line: string): number {
 }
 
 /**
- * Remove import lines and blocks (including multiline `import { ... } from "x"`).
- * Line-only filters leave orphan `}` / identifiers and break react-live parsing.
+ * Remove every ES module `import` (including `import type`, side-effect `import "x"`,
+ * multiline blocks). Skips lines that are dynamic `import(` calls.
  */
 function stripImportLines(source: string): string {
   const lines = source.split("\n");
@@ -205,10 +205,19 @@ function stripImportLines(source: string): string {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!skipping) {
-      if (/^\s*import(?:\s+|\{)/.test(line)) {
+      if (/^\s*import\s*\(/.test(line)) {
+        out.push(line);
+        continue;
+      }
+      if (/^\s*import\.meta\b/.test(line)) {
+        out.push(line);
+        continue;
+      }
+      if (/^\s*import\b/.test(line)) {
         skipping = true;
         depth = braceDelta(line);
-        if (trimmed.endsWith(";") && depth <= 0) {
+        const fromDone = /from\s+["'][^"']+["']\s*;?\s*$/.test(trimmed);
+        if ((trimmed.endsWith(";") && depth <= 0) || (fromDone && depth <= 0)) {
           skipping = false;
         }
         continue;
@@ -218,12 +227,56 @@ function stripImportLines(source: string): string {
     }
 
     depth += braceDelta(line);
-    if (trimmed.endsWith(";") && depth <= 0) {
+    const fromDone = /from\s+["'][^"']+["']\s*;?\s*$/.test(trimmed);
+    if (depth <= 0 && (trimmed.endsWith(";") || fromDone)) {
       skipping = false;
     }
   }
 
   return out.join("\n");
+}
+
+/**
+ * Demote or remove export declarations so sucrase/react-live never sees `export`.
+ * Run only after default export name has been resolved.
+ */
+function stripExportDeclarationsForLive(source: string): string {
+  let s = source;
+  s = s.replace(/^\s*export\s+\*\s+from\s+["'][^"']+["']\s*;?\s*$/gm, "");
+  s = s.replace(
+    /^\s*export\s*\{[^}]*\}\s+from\s+["'][^"']+["']\s*;?\s*$/gm,
+    "",
+  );
+  s = s.replace(/^\s*export\s+type\s*\{[^}]*\}\s*;?\s*$/gm, "");
+  s = s.replace(/^\s*export\s*\{[^}]*\}\s*;?\s*$/gm, "");
+  const demotions: [RegExp, string][] = [
+    [/\bexport\s+default\s+async\s+function\s+/g, "async function "],
+    [/\bexport\s+default\s+function\s+/g, "function "],
+    [/\bexport\s+default\s+class\s+/g, "class "],
+    [/\bexport\s+async\s+function\s+/g, "async function "],
+    [/\bexport\s+function\s+/g, "function "],
+    [/\bexport\s+const\s+/g, "const "],
+    [/\bexport\s+let\s+/g, "let "],
+    [/\bexport\s+var\s+/g, "var "],
+    [/\bexport\s+class\s+/g, "class "],
+    [/\bexport\s+type\s+/g, "type "],
+    [/\bexport\s+interface\s+/g, "interface "],
+    [/\bexport\s+enum\s+/g, "enum "],
+  ];
+  for (const [re, rep] of demotions) {
+    s = s.replace(re, rep);
+  }
+  s = s.replace(/^\s*export\s+default\s+[A-Za-z_$][\w$]*\s*;?\s*$/gm, "");
+  s = s.replace(/^\s*export\s+default\s+.+\s*;?\s*$/gm, "");
+  return s.replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * Imports + exports removed/demoted — this is the only shape passed to LiveProvider
+ * (after `render(...)` is appended in `prepareStreamedCodeForLive`).
+ */
+export function stripModuleSyntaxForLiveBody(source: string): string {
+  return stripExportDeclarationsForLive(stripImportLines(source)).trim();
 }
 
 function stripViewportHeightCaps(source: string): string {
@@ -644,6 +697,32 @@ function detectLastComponentSymbol(source: string): string | null {
   return names.length ? names[names.length - 1] : null;
 }
 
+/**
+ * Give anonymous default exports a stable name so react-live can `render(<Name />)`.
+ */
+function normalizeAnonymousDefaultExport(source: string): string {
+  const s = source.trim();
+  if (!/\bexport\s+default\b/.test(s)) {
+    return source;
+  }
+  if (/\bexport\s+default\s+function\s+\w+\s*[<(]/.test(s)) {
+    return source;
+  }
+  if (/\bexport\s+default\s*\(\s*\)\s*=>/.test(s)) {
+    return `${s.replace(/\bexport\s+default\s+/, "const __LiveAnonymous = ")}\nexport default __LiveAnonymous;`;
+  }
+  if (
+    /\bexport\s+default\s*\([^)]*\)\s*=>/.test(s) &&
+    !/\bexport\s+default\s+function\b/.test(s)
+  ) {
+    return `${s.replace(/\bexport\s+default\s+/, "const __LiveAnonymous = ")}\nexport default __LiveAnonymous;`;
+  }
+  if (/\bexport\s+default\s+function\s*\(/.test(s)) {
+    return `${s.replace(/\bexport\s+default\s+function\s*\(/, "function __LiveDefault(")}\nexport default __LiveDefault;`;
+  }
+  return source;
+}
+
 /** Resolve which identifier to render() after ensureDefaultExport runs. */
 function extractDefaultExportName(source: string): string | null {
   const fromAsyncFn = source.match(
@@ -655,6 +734,12 @@ function extractDefaultExportName(source: string): string | null {
   const fromFn = source.match(/export\s+default\s+function\s+(\w+)\s*[<(]/);
   if (fromFn?.[1]) {
     return fromFn[1];
+  }
+  const memoIdent = source.match(
+    /export\s+default\s+memo\s*(?:<[^>]*>)?\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/,
+  );
+  if (memoIdent?.[1]) {
+    return memoIdent[1];
   }
   const fromIdent = source.match(/export\s+default\s+([A-Za-z_$][\w$]*)\b\s*;?/m);
   if (fromIdent?.[1]) {
@@ -682,6 +767,80 @@ export type AppendMissingDefaultExportOptions = {
   permissive?: boolean;
 };
 
+/** Rough delimiter balance (strings/comments not perfect; good enough for streaming guard). */
+function hasBalancedBracketsForExportGuard(source: string): boolean {
+  let paren = 0;
+  let brace = 0;
+  let bracket = 0;
+  let inStr: "'" | '"' | "`" | null = null;
+  let escaped = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inStr) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === inStr) {
+        inStr = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      inStr = ch as "'" | '"' | "`";
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      const nl = source.indexOf("\n", i);
+      i = nl < 0 ? source.length - 1 : nl;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      i = end < 0 ? source.length - 1 : end + 1;
+      continue;
+    }
+    if (ch === "(") paren += 1;
+    if (ch === ")") paren -= 1;
+    if (ch === "{") brace += 1;
+    if (ch === "}") brace -= 1;
+    if (ch === "[") bracket += 1;
+    if (ch === "]") bracket -= 1;
+    if (paren < 0 || brace < 0 || bracket < 0) {
+      return false;
+    }
+  }
+  return paren === 0 && brace === 0 && bracket === 0;
+}
+
+/**
+ * Avoid `export default Inferred` while the model is mid-token (reduces Sucrase "Unexpected token" / semicolon errors).
+ */
+function isSafeToAppendInferredDefaultExport(cleaned: string): boolean {
+  const t = cleaned.trimEnd();
+  if (!t) {
+    return false;
+  }
+  if (!hasBalancedBracketsForExportGuard(t)) {
+    return false;
+  }
+  const lastLine = t.split("\n").pop()?.trim() ?? "";
+  if (/[=([{?:>|&.!^~,*+-/%]$/.test(lastLine)) {
+    return false;
+  }
+  if (/\b(export|import|const|let|var|function|class|interface|type|enum|return|case|else|if|do|while)$/.test(lastLine)) {
+    return false;
+  }
+  if (/(?:=>|\.\.\.)$/.test(lastLine)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Appends a default export to streamed code when missing, so preview can keep rendering
  * during partial generations instead of blanking.
@@ -701,6 +860,9 @@ export function appendMissingDefaultExport(
   }
   const inferred = detectLastComponentSymbol(cleaned);
   if (inferred) {
+    if (options?.permissive && !isSafeToAppendInferredDefaultExport(cleaned)) {
+      return cleaned;
+    }
     return `${cleaned}\n\nexport default ${inferred};`;
   }
   if (options?.permissive) {
@@ -783,9 +945,9 @@ export function analyzePreviewCodeIssues(raw: string): {
 }
 
 export function toReactLiveRenderableCode(sourceCode: string, componentName: string): string {
-  const stripped = stripViewportHeightCaps(stripImportLines(stripMarkdownFences(sourceCode)))
-    .replace(/export\s+default\s+function\s+/g, "function ")
-    .replace(/export\s+default\s+/g, "");
+  const stripped = stripViewportHeightCaps(
+    stripModuleSyntaxForLiveBody(stripMarkdownFences(sourceCode)),
+  );
   return `${stripped}\n\nrender(<${componentName} />);`;
 }
 
@@ -873,6 +1035,17 @@ function hasLikelyIncompleteSyntax(source: string): boolean {
     return true;
   }
   return /(?:\b(?:function|const|let|var|return|export)\s*)$/.test(source.trimEnd());
+}
+
+/**
+ * When false, feeding the string to react-live during a stream risks parse thrash / memory pressure.
+ * Uses delimiter balance + string parity heuristics (matches the streaming “incomplete syntax” detector).
+ */
+export function isPreparedLiveCodeStructurallyRenderSafe(preparedCode: string): boolean {
+  if (!preparedCode.trim()) {
+    return false;
+  }
+  return !hasLikelyIncompleteSyntax(preparedCode);
 }
 
 function closeUnbalancedPairs(source: string): string {
@@ -970,6 +1143,12 @@ function applyPermissiveStreamFixes(preSanitized: string): string {
   return fixed;
 }
 
+/**
+ * Appends `render(<componentName />)` after the live body. `componentName` must come from
+ * `extractDefaultExportName(withExport)` on the **pre-strip** module (imports/exports still present),
+ * then `stripModuleSyntaxForLiveBody(withExport)` demotes `export default function Foo` → `function Foo`
+ * so the same identifier `Foo` remains in scope for `render(<Foo />)`.
+ */
 function buildSafeRenderBlock(componentName: string): string {
   return `try {
   render(<${componentName} />);
@@ -1047,7 +1226,7 @@ render(<StreamError />);`;
     if (isUnavailableServiceError(cleaned)) {
       return SERVER_BUSY_LIVE_CODE;
     }
-    let withoutImports = applyPermissiveStreamFixes(cleaned);
+    let withoutImports = applyPermissiveStreamFixes(stripImportLines(cleaned));
     if (!withoutImports) {
       return LIVE_PREVIEW_WAITING_CODE;
     }
@@ -1075,21 +1254,34 @@ render(<StreamError />);`;
       }
     }
 
+    withoutImports = normalizeAnonymousDefaultExport(withoutImports);
+
     const withExport = ensureDefaultExport(withoutImports);
     const componentName = extractDefaultExportName(withExport);
     if (componentName) {
-      const body = withExport
-        .replace(/export\s+default\s+function\s+/g, "function ")
-        .replace(/export\s+default\s+/g, "");
+      const body = stripModuleSyntaxForLiveBody(withExport);
       return `${body}\n\n${buildSafeRenderBlock(componentName)}`;
+    }
+
+    if (forceRender) {
+      const wrapped = wrapInTemporaryDefaultExport(
+        stripViewportHeightCaps(withoutImports).trim(),
+      );
+      const forcedName =
+        wrapped.match(/export\s+default\s+function\s+(\w+)\s*[<(]/)?.[1] ||
+        "__StreamPartialPreview";
+      const body = stripModuleSyntaxForLiveBody(wrapped);
+      return `${body}\n\nrender(<${forcedName} />);`;
     }
 
     const jsxStart = withoutImports.indexOf("<");
     const jsxEnd = withoutImports.lastIndexOf(">");
     const hasLikelyJsxFragment = jsxStart >= 0 && jsxEnd > jsxStart;
     if (hasLikelyJsxFragment) {
-      const jsxFragment = appendTemporaryClosingTagsForOpenElements(
-        withoutImports.slice(jsxStart, jsxEnd + 1).trim(),
+      const jsxFragment = stripModuleSyntaxForLiveBody(
+        appendTemporaryClosingTagsForOpenElements(
+          withoutImports.slice(jsxStart, jsxEnd + 1).trim(),
+        ),
       );
       return `try {
   render(
@@ -1100,20 +1292,6 @@ render(<StreamError />);`;
 } catch (_e) {
   render(<div className="min-h-[12rem] text-sm text-zinc-500">Optimizing Code...</div>);
 }`;
-    }
-
-    if (forceRender) {
-      const wrapped = wrapInTemporaryDefaultExport(
-        stripViewportHeightCaps(stripImportLines(cleaned)).trim(),
-      );
-      const wStripped = stripImportLines(wrapped).trim();
-      const forcedName =
-        wStripped.match(/export\s+default\s+function\s+(\w+)\s*[<(]/)?.[1] ||
-        "__StreamPartialPreview";
-      const body = wStripped
-        .replace(/export\s+default\s+function\s+/g, "function ")
-        .replace(/export\s+default\s+/g, "");
-      return `${body}\n\nrender(<${forcedName} />);`;
     }
 
     return composingLiveCode();

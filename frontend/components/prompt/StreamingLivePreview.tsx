@@ -7,6 +7,7 @@ import {
   appendMissingDefaultExport,
   analyzePreviewCodeIssues,
   isPlaceholderOrWaitingLiveCode,
+  isPreparedLiveCodeStructurallyRenderSafe,
   prepareStreamedCodeForLive,
   stripMarkdownCodeFencesFromStream,
 } from "@/lib/live-preview";
@@ -103,9 +104,13 @@ class SafeRender extends React.Component<SafeRenderProps, SafeRenderState> {
   }
 }
 
+const MemoLivePreview = React.memo(function MemoLivePreview() {
+  return <LivePreview />;
+});
+
 function TryLivePreview(props: { onRenderError: () => void }): React.ReactElement | null {
   try {
-    return <LivePreview />;
+    return <MemoLivePreview />;
   } catch (err) {
     console.warn("[TryLivePreview] render guard:", err);
     props.onRenderError();
@@ -113,15 +118,32 @@ function TryLivePreview(props: { onRenderError: () => void }): React.ReactElemen
   }
 }
 
-function FilteredStreamingLiveError(props: { className?: string }): React.ReactElement | null {
+function FilteredStreamingLiveError(props: {
+  className?: string;
+  /** Hide Sucrase/react-live error UI while the model is still streaming */
+  hideDuringStream?: boolean;
+}): React.ReactElement | null {
   const { error } = React.useContext(LiveContext);
-  if (!error) {
+  if (!error || props.hideDuringStream) {
     return null;
   }
-  if (isLikelyTranspileSyntaxError(error)) {
-    return null;
-  }
-  return <pre className={props.className}>{error}</pre>;
+  const syntax = isLikelyTranspileSyntaxError(error);
+  return (
+    <div
+      className={
+        props.className ??
+        "mt-3 max-h-56 overflow-auto rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 dark:border-rose-300/40 dark:bg-rose-950/20 dark:text-rose-200"
+      }
+      role="alert"
+    >
+      <p className="font-semibold">
+        {syntax ? "Syntax error (streaming)" : "Preview error"}
+      </p>
+      <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-rose-950 dark:text-rose-100/95">
+        {error}
+      </pre>
+    </div>
+  );
 }
 
 type StreamingLivePreviewProps = {
@@ -130,6 +152,11 @@ type StreamingLivePreviewProps = {
   onServerBusyRetry?: () => void;
   forceRender?: boolean;
   isGenerating?: boolean;
+  /**
+   * Bumps when a new generation starts (e.g. workspace visual epoch). Remounts
+   * `LiveProvider` and clears stable preview cache so react-live does not reuse prior stream state.
+   */
+  streamResetKey?: number;
   /** Shown under the shimmer while generating or waiting on capacity retries */
   polishingMessage?: string;
   /** Gold mesh shimmer + typography for the luxe /generate workspace. */
@@ -144,6 +171,7 @@ export function StreamingLivePreview({
   onServerBusyRetry,
   forceRender = false,
   isGenerating = false,
+  streamResetKey = 0,
   polishingMessage = DEFAULT_POLISH_MESSAGE,
   luxeGoldShimmer = false,
 }: StreamingLivePreviewProps) {
@@ -170,35 +198,74 @@ export function StreamingLivePreview({
 
   const lastStableLiveRef = React.useRef<string | null>(null);
   const [providerCode, setProviderCode] = React.useState(LIVE_PREVIEW_WAITING_CODE);
+  const prevStreamEpochRef = React.useRef<number | undefined>(undefined);
+  const recoverThrottleRef = React.useRef<number>(0);
+
+  const applyLiveCode = React.useCallback(
+    (next: string) => {
+      if (isLivePreviewCodeCompilable(next)) {
+        setProviderCode((prev) => (prev === next ? prev : next));
+        if (!isPlaceholderOrWaitingLiveCode(next)) {
+          lastStableLiveRef.current = next;
+        }
+        return;
+      }
+      if (isGenerating) {
+        const stable = lastStableLiveRef.current;
+        if (stable) {
+          setProviderCode((prev) => (prev === stable ? prev : stable));
+        }
+        return;
+      }
+      setProviderCode((prev) => (prev === next ? prev : next));
+    },
+    [isGenerating],
+  );
+
+  React.useEffect(() => {
+    const prev = prevStreamEpochRef.current;
+    prevStreamEpochRef.current = streamResetKey;
+    if (prev !== undefined && prev !== streamResetKey) {
+      lastStableLiveRef.current = null;
+      setProviderCode(LIVE_PREVIEW_WAITING_CODE);
+    }
+  }, [streamResetKey]);
 
   React.useEffect(() => {
     if (!fenceStrippedRaw.trim()) {
       if (isGenerating) {
-        if (lastStableLiveRef.current) {
-          setProviderCode(lastStableLiveRef.current);
-          return;
-        }
-        setProviderCode(LIVE_PREVIEW_WAITING_CODE);
-        return;
+        setProviderCode((p) => (p === LIVE_PREVIEW_WAITING_CODE ? p : LIVE_PREVIEW_WAITING_CODE));
+      } else {
+        lastStableLiveRef.current = null;
+        setProviderCode((p) => (p === LIVE_PREVIEW_WAITING_CODE ? p : LIVE_PREVIEW_WAITING_CODE));
       }
-      lastStableLiveRef.current = null;
-      setProviderCode(LIVE_PREVIEW_WAITING_CODE);
       return;
     }
 
     const next = candidateLiveCode;
-    setProviderCode(next);
-    if (
-      !isPlaceholderOrWaitingLiveCode(next) &&
-      isLivePreviewCodeCompilable(next)
-    ) {
-      lastStableLiveRef.current = next;
+    const placeholder = isPlaceholderOrWaitingLiveCode(next);
+    const structureOk = placeholder || isPreparedLiveCodeStructurallyRenderSafe(next);
+
+    if (isGenerating && !structureOk) {
+      const stable = lastStableLiveRef.current;
+      if (stable) {
+        setProviderCode((prev) => (prev === stable ? prev : stable));
+      }
+      return;
     }
-  }, [candidateLiveCode, fenceStrippedRaw, isGenerating]);
+
+    applyLiveCode(next);
+  }, [applyLiveCode, candidateLiveCode, fenceStrippedRaw, isGenerating]);
 
   const handleRecover = React.useCallback(() => {
-    if (lastStableLiveRef.current) {
-      setProviderCode(lastStableLiveRef.current);
+    const now = Date.now();
+    if (now - recoverThrottleRef.current < 400) {
+      return;
+    }
+    recoverThrottleRef.current = now;
+    const stable = lastStableLiveRef.current;
+    if (stable) {
+      setProviderCode((prev) => (prev === stable ? prev : stable));
     }
   }, []);
 
@@ -317,29 +384,39 @@ export function StreamingLivePreview({
           </div>
         ) : null}
         <LiveProvider
+          key={`luxegen-live-${streamResetKey}`}
           code={providerCode}
           noInline
           scope={livePreviewScope}
           enableTypeScript
         >
-          <PreviewErrorBoundary code={providerCode} onRecover={handleRecover}>
+          <PreviewErrorBoundary
+            key={`luxegen-preview-eb-${streamResetKey}`}
+            code={providerCode}
+            onRecover={handleRecover}
+          >
             <div
               className={
                 luxeGoldShimmer
-                  ? "max-h-[min(26rem,65dvh)] min-h-[min(20rem,50dvh)] overflow-y-auto overflow-x-auto rounded-2xl border border-[#e5ded3]/90 bg-white p-3 text-black shadow-[inset_0_2px_12px_rgba(45,38,28,0.04)] sm:max-h-[26rem] sm:min-h-[20rem] sm:p-4 [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible dark:border-white/12 dark:bg-[#faf9f7] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]"
-                  : "max-h-[min(26rem,65dvh)] min-h-[min(20rem,50dvh)] overflow-y-auto overflow-x-auto rounded-2xl border border-white/10 bg-white p-3 text-black sm:max-h-[26rem] sm:min-h-[20rem] sm:p-4 [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible"
+                  ? "live-preview-mount flex min-h-[min(20rem,50dvh)] max-h-[min(26rem,65dvh)] flex-col overflow-y-auto overflow-x-auto rounded-2xl border border-[#e5ded3]/90 bg-white p-3 text-zinc-900 shadow-[inset_0_2px_12px_rgba(45,38,28,0.04)] sm:max-h-[26rem] sm:min-h-[20rem] sm:p-4 [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible dark:border-white/12 dark:bg-[#faf9f7] dark:text-zinc-900 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] [&_.react-live-error]:text-sm [&_.react-live-error]:text-rose-700"
+                  : "live-preview-mount flex min-h-[min(20rem,50dvh)] max-h-[min(26rem,65dvh)] flex-col overflow-y-auto overflow-x-auto rounded-2xl border border-white/10 bg-white p-3 text-zinc-900 sm:max-h-[26rem] sm:min-h-[20rem] sm:p-4 [&_main]:h-auto [&_main]:min-h-0 [&_main]:max-h-none [&_main]:overflow-visible [&_.react-live-error]:text-sm [&_.react-live-error]:text-rose-700"
               }
             >
               {!showShimmer ? (
+                <FilteredStreamingLiveError
+                  hideDuringStream={isGenerating}
+                  className="mb-3 max-h-56 shrink-0 overflow-auto rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 dark:border-rose-300/40 dark:bg-rose-950/20 dark:text-rose-200"
+                />
+              ) : null}
+              {!showShimmer ? (
                 <SafeRender onError={handleRecover}>
-                  <TryLivePreview onRenderError={handleRecover} />
+                  <div className="min-h-0 flex-1">
+                    <TryLivePreview onRenderError={handleRecover} />
+                  </div>
                 </SafeRender>
               ) : null}
             </div>
           </PreviewErrorBoundary>
-          {!providerCode.includes("Optimizing Code...") && !showShimmer ? (
-            <FilteredStreamingLiveError className="mt-3 max-h-40 overflow-auto rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-300/40 dark:bg-rose-950/10 dark:text-rose-300" />
-          ) : null}
         </LiveProvider>
       </div>
     </article>
