@@ -32,7 +32,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   let upstream: Response;
-  const generateUrl = `${base}/api/generate`;
+  const generateUrl = `${process.env.BACKEND_URL}/api/generate`; // Yeh 8080/api/generate hona chahiye
   try {
     upstream = await fetchBackendWithEconnrefusedRetries(
       generateUrl,

@@ -15,8 +15,7 @@ import { streamPromptGenerateToResponse } from "./prompt-stream.js";
 
 const PORT = Number(process.env.PORT || 8080) || 8080;
 /** Bind all IPv4 interfaces so 127.0.0.1 and LAN work; avoids “localhost” resolving to ::1 only. */
-const LISTEN_HOST = (process.env.LISTEN_HOST ?? process.env.HOST ?? "0.0.0.0").trim() || "0.0.0.0";
-
+const LISTEN_HOST = "127.0.0.1";
 /** Comma-separated list with safe local defaults + optional production frontend URL. */
 const defaultCorsOrigins = [
   "http://localhost:3000", // Next.js dev (explicit; keep for CORS)
