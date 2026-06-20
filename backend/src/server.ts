@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 /** Resolve `.env` from package root (works for `tsx src/server.ts` and `node dist/server.js`). */
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,6 +48,13 @@ const GEMINI_MODEL =
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
 const isGeminiConfigured = Boolean(GEMINI_API_KEY);
 
+// Environment variable validation
+if (!GEMINI_API_KEY) {
+  console.warn(
+    "[CONFIG] GEMINI_API_KEY is not set. AI endpoints will return 500 errors.",
+  );
+}
+
 const allowedMime = new Set([
   "image/png",
   "image/jpeg",
@@ -62,7 +71,29 @@ const upload = multer({
 
 const app = express();
 
+// Security middleware
+app.use(helmet());
 app.use(express.json({ limit: "4mb" }));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: { error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter rate limit for AI generation endpoints
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // Limit each IP to 10 AI requests per minute
+  message: { error: "Rate limit exceeded. Please wait before making another request." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(limiter);
 
 /** Strict allowlist only when NODE_ENV=production (npm run dev / tsx usually unset → permissive). */
 const isProduction = process.env.NODE_ENV === "production";
@@ -104,7 +135,7 @@ app.use(
     : corsDevelopment,
 );
 
-app.post("/api/generate", async (req, res): Promise<void> => {
+app.post("/api/generate", aiLimiter, async (req, res): Promise<void> => {
   console.log("[api/generate] request", { origin: req.headers.origin });
   await streamPromptGenerateToResponse(req.body, res);
 });
@@ -131,6 +162,7 @@ app.get("/health", (req, res) => {
 
 app.post(
   "/api/image-to-react",
+  aiLimiter,
   upload.single("image"),
   async (req, res): Promise<void> => {
     console.log("[api/image-to-react] request received", {

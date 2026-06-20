@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ThemeFlipGridOverlay } from "@/components/ThemeFlipGridOverlay";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { AuthProvider } from "@/components/AuthProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,8 +35,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>
-          <ThemeFlipGridOverlay />
-          {children}
+          <AuthProvider>
+            <ThemeFlipGridOverlay />
+            {children}
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
