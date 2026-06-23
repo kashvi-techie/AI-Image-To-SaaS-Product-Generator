@@ -171,11 +171,19 @@ function stripLeadingNonCodeLines(text: string): string {
   return lines.slice(start).join("\n");
 }
 
-/** Regex pass: drop obvious non-code tokens (lone bullets, markdown headers mid-stream). */
+/**
+ * Regex pass: drop obvious non-code tokens (markdown headers / blockquotes mid-stream).
+ *
+ * IMPORTANT: the separator after `#`/`>` must be `[ \t]`, NOT `\s`. `\s` matches
+ * newlines, so a JSX opening tag whose closing `>` sits alone on its own line
+ * (common in multi-line formatted tags) would match and SWALLOW the following
+ * line (e.g. `{children}`), producing invalid JSX that never compiles. Requiring a
+ * space/tab keeps this to genuine single-line markdown prose only.
+ */
 function stripNonCodeNoiseWithRegex(text: string): string {
   return text
-    .replace(/^\s*#{1,6}\s[^\n]*\n/gm, "")
-    .replace(/^\s*>\s[^\n]*\n/gm, "")
+    .replace(/^[ \t]*#{1,6}[ \t][^\n]*\n/gm, "")
+    .replace(/^[ \t]*>[ \t][^\n]*\n/gm, "")
     .replace(/\n{4,}/g, "\n\n");
 }
 
