@@ -201,24 +201,22 @@ luxeGen/
 
 ## 🚢 Deployment
 
-### Backend (Express)
+The AI runs **inside the Next.js app** (`frontend/app/api/*`), so the whole project
+deploys as a **single Vercel app** — there is no separate backend to host, and
+"Backend offline" can no longer happen.
 
-Deploy to Railway, Render, or any Node.js host:
+### Deploy to Vercel
 
-1. Set `GEMINI_API_KEY` in environment
-2. Set `NODE_ENV=production`
-3. Configure CORS origins if needed
+1. Connect your GitHub repository.
+2. **Settings → General → Root Directory: `frontend`**
+3. **Settings → Environment Variables**, add:
+   - `GEMINI_API_KEY` — **required** (https://aistudio.google.com/app/apikey)
+   - `GEMINI_MODEL` — optional (defaults to `gemini-1.5-flash`)
+   - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — optional (auth)
+4. Deploy (or redeploy after adding the key).
 
-### Frontend (Next.js)
-
-Deploy to Vercel:
-
-1. Connect your GitHub repository
-2. Set environment variables:
-   - `BACKEND_URL` - Your deployed backend URL
-   - `NEXT_PUBLIC_SUPABASE_URL` (optional)
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` (optional)
-3. Deploy
+> `BACKEND_URL` is **no longer required**. The `backend/` folder is kept for
+> reference only and is not part of the deployment.
 
 ## 📝 Environment Variables
 

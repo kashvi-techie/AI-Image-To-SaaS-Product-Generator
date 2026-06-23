@@ -52,15 +52,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  /**
-   * Same-origin proxy: /api/proxy/:path* → backend origin + :path*
-   * Development default destination: http://127.0.0.1:8080 (IPv4; avoids ::1 issues).
-   * Restart `next dev` after changing BACKEND_URL.
-   */
-  async rewrites() {
-    const forcedDestination = "http://127.0.0.1:8080/:path*";
-    return [{ source: "/api/proxy/:path*", destination: forcedDestination }];
-  },
 };
 
 export default nextConfig;
