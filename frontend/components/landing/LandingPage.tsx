@@ -2,8 +2,9 @@
 
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import axios from "axios";
-import { Loader2, Menu, Play, Plus, Sparkles, User, X } from "lucide-react";
+import { Loader2, Menu, Play, Plus, Sparkles, X } from "lucide-react";
 import * as React from "react";
+import { AuthMenu } from "@/components/AuthMenu";
 import { DesignerWorkspace } from "@/components/features/workspace/DesignerWorkspace";
 import { DesignerWorkspaceErrorBoundary } from "@/components/features/workspace/DesignerWorkspaceErrorBoundary";
 import { luxeSerif } from "@/lib/fonts/luxe-serif";
@@ -24,67 +25,7 @@ const PROMPT_OUTER_LIGHT =
   "max-w-[min(52rem,94vw)] rounded-[1.85rem] border-2 border-[#a07830]/55 bg-[#fdfbf4]/88 shadow-[0_10px_40px_rgba(139,105,20,0.07),inset_0_1px_0_rgba(255,255,255,0.85),inset_0_-10px_28px_rgba(160,120,48,0.06),inset_4px_4px_12px_rgba(255,255,255,0.45)] backdrop-blur-2xl";
 
 function ProfileMenu() {
-  const [open, setOpen] = React.useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function onDoc(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <motion.button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="Profile"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        className="glass-btn inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-50/70 dark:text-zinc-100 dark:hover:bg-white/10"
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-      >
-        <User className="h-3.5 w-3.5 text-zinc-600 dark:text-amber-200/90" aria-hidden />
-        <span className="hidden sm:inline">Profile</span>
-      </motion.button>
-      {open ? (
-        <div
-          role="dialog"
-          aria-label="Profile"
-          className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-amber-200/40 bg-[#fdfbf4]/95 p-4 shadow-xl backdrop-blur-xl dark:border-[#fccf45]/25 dark:bg-[#261e01]/95"
-        >
-          <p
-            className={`${luxeSerif.className} text-sm font-semibold text-amber-950 dark:text-[#fccf45]`}
-          >
-            Your profile
-          </p>
-          <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-white/55">
-            You&apos;re browsing as a guest. Account sign-in and saved projects can plug in here later.
-          </p>
-          <div className="mt-3 flex h-12 w-12 items-center justify-center rounded-full border border-amber-200/50 bg-white/60 text-xs font-medium text-zinc-500 dark:border-[#fccf45]/30 dark:bg-white/5 dark:text-white/50">
-            LG
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+  return <AuthMenu />;
 }
 
 /** Sits inside `.luxe-dashboard-shell` (relative). Must use z-0 — not negative z — or orbs hide behind the shell's solid background. */

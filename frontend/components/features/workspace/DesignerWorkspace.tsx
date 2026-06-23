@@ -17,6 +17,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Rocket,
   Settings,
   Sparkles,
   WifiOff,
@@ -38,6 +39,8 @@ import { ForceRenderHintLabel } from "@/components/prompt/ForceRenderHintLabel";
 import { StreamingLivePreview } from "@/components/prompt/StreamingLivePreview";
 import { ResponseMeta } from "@/components/ResponseMeta";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { AuthMenu } from "@/components/AuthMenu";
+import { PublishDialog } from "@/components/features/workspace/PublishDialog";
 import { Toast } from "@/components/Toast";
 import { luxeSerif } from "@/lib/fonts/luxe-serif";
 import { devInfo, devLog } from "@/lib/dev-log";
@@ -362,6 +365,7 @@ export function DesignerWorkspace({
     "Deploy intent ready.",
   );
   const [isPreparingDeploy, setIsPreparingDeploy] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [promptHistory, setPromptHistory] = useState<PromptHistoryEntry[]>([]);
   const [activePromptHistoryId, setActivePromptHistoryId] = useState<string | null>(null);
   const [promptHistoryOpen, setPromptHistoryOpen] = useState(false);
@@ -1309,6 +1313,7 @@ export function DesignerWorkspace({
                   <Settings className="h-4 w-4" />
                 </button>
               ) : null}
+              <AuthMenu />
               <ThemeToggle />
             </div>
           </div>
@@ -1332,6 +1337,7 @@ export function DesignerWorkspace({
             </div>
             <div className="flex shrink-0 items-center gap-2 md:gap-3">
               {overlayOnHeroGradient ? <ThemeToggle /> : null}
+              <AuthMenu />
               <div className="hidden items-center gap-2 rounded-full border border-emerald-300/40 bg-emerald-100/70 px-3 py-1.5 text-xs font-medium text-emerald-900 sm:flex dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" aria-hidden />
                 Gemini 1.5
@@ -1770,6 +1776,16 @@ export function DesignerWorkspace({
                           <Code2 className="h-3.5 w-3.5" aria-hidden />
                           Copy for Vercel
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setPublishOpen(true)}
+                          disabled={!streamedPromptCode.trim()}
+                          title="Create a GitHub repo and deploy to Vercel"
+                          className="inline-flex items-center gap-2 rounded-lg border border-[#d4af37]/55 bg-[#d4af37]/18 px-3 py-1.5 text-[11px] font-semibold text-[#f7efdc] transition hover:bg-[#d4af37]/30 disabled:cursor-not-allowed disabled:opacity-55"
+                        >
+                          <Rocket className="h-3.5 w-3.5" aria-hidden />
+                          Publish
+                        </button>
                       </div>
                     </div>
                     <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-[#d4af37]/20 bg-[#1a1612]/65">
@@ -1929,6 +1945,16 @@ export function DesignerWorkspace({
                       >
                         <Code2 className="h-3.5 w-3.5" aria-hidden />
                         Copy for Vercel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPublishOpen(true)}
+                        disabled={!streamedPromptCode.trim()}
+                        title="Create a GitHub repo and deploy to Vercel"
+                        className="inline-flex items-center gap-2 rounded-lg border border-amber-500/60 bg-amber-500/15 px-3 py-1.5 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-55 dark:text-amber-200 dark:hover:bg-amber-500/25"
+                      >
+                        <Rocket className="h-3.5 w-3.5" aria-hidden />
+                        Publish
                       </button>
                     </div>
                   </div>
@@ -2237,6 +2263,12 @@ export function DesignerWorkspace({
         message="Please enter a design prompt first"
         show={showEmptyPromptToast}
         variant="info"
+      />
+      <PublishDialog
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        code={streamedPromptCode}
+        defaultName={response?.componentName ?? "luxegen-site"}
       />
     </div>
   );
