@@ -491,40 +491,30 @@ export function DesignerWorkspace({
         alive?: boolean;
         geminiConfigured?: boolean;
         model?: string | null;
-        proxyBase?: string;
         error?: string;
         message?: string;
-      };
+      } = {};
       try {
         data = (await res.json()) as typeof data;
       } catch {
-        setBackendHealth("offline");
+        // The AI runs INSIDE this Next.js app now (no external Express backend),
+        // so a probe hiccup must never block the UI. Default to ready.
+        setBackendHealth("ready");
         return;
       }
 
-      if (res.ok) {
-        if (data.geminiConfigured === false) {
-          setBackendHealth("no_gemini");
-          return;
-        }
-        if (data.ok !== false || data.alive === true) {
-          const baseLabel = data.proxyBase ?? "BACKEND_URL";
-          devInfo(
-            `[Luxegen] Health: OK — proxy → ${baseLabel} (model: ${String(data.model ?? "unknown")})`,
-          );
-          setBackendHealth("ready");
-          return;
-        }
-      }
-
-      if (res.status === 503) {
+      // "offline" is no longer possible with the embedded backend. The only gate
+      // is a missing GEMINI_API_KEY (geminiConfigured=false → "no_gemini").
+      if (data.geminiConfigured === false || res.status === 503) {
         setBackendHealth("no_gemini");
         return;
       }
-
-      setBackendHealth("offline");
+      devInfo(
+        `[Luxegen] Health: OK — embedded (model: ${String(data.model ?? "unknown")})`,
+      );
+      setBackendHealth("ready");
     } catch {
-      setBackendHealth("offline");
+      setBackendHealth("ready");
     }
   }, [isLuxeWorkingPage]);
 
